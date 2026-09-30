@@ -16,11 +16,26 @@ export function roleLabel(role: Role | null): string {
 
 export const ROLES = Object.keys(ROLE_LABELS) as Role[];
 
+export const ROLE_ICONS: Record<Role, string> = {
+  gardening: '🌱',
+  foraging: '🫐',
+  mining: '⛏️',
+  digging: '🟫',
+  fishing: '🎣',
+  timebending: '⏳',
+  snippetCatching: '🕸️'
+};
+
 function to12HourTime(h: number): { hour: number; meridiem: 'AM' | 'PM' } {
   return {
     hour: h % 12 === 0 ? 12 : h % 12,
     meridiem: h % 24 < 12 ? 'AM' : 'PM'
   };
+}
+
+export function formatHour(hour: number): string {
+  const { hour: h, meridiem } = to12HourTime(hour);
+  return `${h} ${meridiem}`;
 }
 
 function formatHourRange({ start, end }: Schedule): string {
@@ -57,10 +72,10 @@ const rtf = new Intl.RelativeTimeFormat(
   { numeric: 'auto' }
 );
 
-export function formatRelativeTime(unixSeconds: number): string {
+export function formatRelativeTime(unixSeconds: number, nowMs = Date.now()): string {
   if (!Number.isFinite(unixSeconds)) return 'unknown';
 
-  const relMs = unixSeconds * 1000 - Date.now();
+  const relMs = unixSeconds * 1000 - nowMs;
   const absMs = Math.abs(relMs);
 
   if (absMs < 60_000) return rtf.format(Math.round(relMs / 1_000), 'second');

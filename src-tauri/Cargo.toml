@@ -1,6 +1,6 @@
 [package]
-name = "dreamkeeper"
-version = "0.1.0"
+name = "dreamcatcher"
+version = "1.0.0"
 description = "A companion app for Dreamlight Valley."
 authors = ["anterem"]
 edition = "2024"
@@ -12,7 +12,7 @@ license = "GPL-3.0-only"
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "dreamkeeper_lib"
+name = "dreamcatcher_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -25,11 +25,11 @@ ecb = { version = "0.2.0", features = ["alloc"] }
 hex-literal = "1.1.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-specta = { version = "2.0.0-rc.24", features = ["derive", "serde_json"] }
-specta-typescript = "0.0.11"
+specta = { version = "2.0.0-rc.25", features = ["derive", "serde_json"] }
+specta-typescript = "0.0.12"
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
-tauri-specta = { version = "2.0.0-rc.24", features = ["derive", "typescript"] }
+tauri-specta = { version = "2.0.0-rc.25", features = ["derive", "typescript"] }
 thiserror = "2.0.18"
 zip = "8.6.0"
 chrono = "0.4"

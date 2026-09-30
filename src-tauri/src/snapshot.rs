@@ -1,6 +1,7 @@
 use super::checklist::{self, ChecklistFacts};
 use super::critters::{self, Critter};
 use super::villagers::{self, Villager};
+use specta_typescript::Number;
 
 #[derive(Clone, serde::Serialize, specta::Type)]
 #[serde(tag = "status", rename_all = "camelCase")]
@@ -23,6 +24,7 @@ impl<T> From<Result<T, super::AppError>> for Section<T> {
 #[derive(Clone, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
+    #[specta(type = Number)]
     tz_offset: i64,
     modified_secs: u32,
     critters: Section<Vec<Critter>>,

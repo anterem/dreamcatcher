@@ -1,113 +1,179 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { page } from '$app/state';
-  import PageHeader from '$lib/components/PageHeader.svelte';
-  import { snapshot } from '$lib/snapshot.svelte';
-  import { liveRelativeTime } from '$lib/clock.svelte';
+  import { save } from '$lib/save.svelte';
+  import { clock } from '$lib/clock.svelte';
+  import { formatRelativeTime } from '$lib/utils';
   import '../app.css';
 
   let { children } = $props();
 
-  let isHome = $derived(page.url.pathname === '/');
+  let pathname = $derived(page.url.pathname);
+  let isSelect = $derived(pathname === '/select');
   let lastUpdated = $derived(
-    snapshot.current ? liveRelativeTime(snapshot.current.modifiedSecs) : ''
+    save.current ? formatRelativeTime(save.current.modifiedSecs, clock.nowSecs * 1000) : null
   );
 
+  let navItems = $derived([
+    { href: '/', label: 'Checklist', icon: '✅' },
+    { href: '/critters', label: 'Critters', icon: '🐿️' },
+    { href: '/villagers', label: 'Villagers', icon: '🎁' },
+    { href: '/settings', label: 'Settings', icon: '⚙️' }
+  ]);
+
   onMount(() => {
-    snapshot.init();
+    save.init();
   });
 </script>
 
-<div id="page">
-  <div class="top-bar">
-    {#if !isHome}
-      <a class="home-link" href="/"><span class="arrow" aria-hidden="true">☜</span> home</a>
-    {/if}
-    {#if snapshot.current}
-      <p class="last-updated">updated <span class="time">{lastUpdated}</span></p>
-    {/if}
+{#if isSelect}
+  {@render children()}
+{:else}
+  <div class="wrapper">
+    <aside class="sidebar">
+      <div class="logo">
+        <img src="/star.svg" alt="" width="26" height="26" />
+        <div class="logo-text">
+          <span class="title">Dreamcatcher</span>
+        </div>
+      </div>
+      <nav aria-label="Sections">
+        {#each navItems as item (item.href)}
+          <a
+            class="nav-button"
+            class:active={pathname === item.href}
+            href={item.href}
+            title={item.label}
+          >
+            <span class="icon" aria-hidden="true">{item.icon}</span>
+            <span class="label">{item.label}</span>
+          </a>
+        {/each}
+      </nav>
+    </aside>
+    <div class="content">
+      {@render children()}
+      {#if lastUpdated}
+        <p class="save-time subtext dim">Saved {lastUpdated}</p>
+      {/if}
+    </div>
   </div>
-  <PageHeader title={page.data.title} />
-
-  <div class="page-inner">
-    {@render children()}
-  </div>
-</div>
+{/if}
 
 <style>
-  #page {
+  .wrapper {
+    max-width: 1280px;
+    margin: 0 auto;
+    min-height: 100dvh;
+    display: flex;
+  }
+
+  .content {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .sidebar {
+    position: sticky;
+    top: 0;
+    height: 100dvh;
+    width: 56px;
+    flex: none;
     display: flex;
     flex-direction: column;
-    position: relative;
-    z-index: 2;
-    min-height: 100vh;
-    padding: var(--space-6);
+    align-items: center;
+    padding: 12px;
+    border-right: 1px solid var(--separator);
   }
 
-  #page::before,
-  #page::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    width: 10px;
-    background-color: color-mix(in srgb, var(--color-primary) 45%, transparent);
-    -webkit-mask-image: var(--line-v);
-    mask-image: var(--line-v);
-    -webkit-mask-repeat: no-repeat;
-    mask-repeat: no-repeat;
-    -webkit-mask-size: 100% 100%;
-    mask-size: 100% 100%;
-  }
-
-  #page::before {
-    left: var(--frame-inset);
-  }
-  #page::after {
-    right: var(--frame-inset);
-  }
-
-  .page-inner {
-    flex: 1;
-    position: relative;
-    width: 100%;
-    max-width: 56rem;
-    margin: 0 auto;
-  }
-
-  .top-bar {
-    position: absolute;
-    top: var(--space-3);
-    left: var(--frame-content-inset);
-    right: var(--frame-content-inset);
-    z-index: 3;
+  .logo {
     display: flex;
-    align-items: baseline;
-    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px 14px;
   }
 
-  .home-link {
-    font-family: var(--font-display);
-    font-size: var(--font-size-md);
-    color: var(--color-text-muted);
-    text-decoration: none;
-    transition: color var(--duration-fast) var(--ease-out);
-  }
-  .home-link:hover {
-    color: var(--color-primary);
+  .logo img {
+    flex: none;
   }
 
-  .last-updated {
-    margin: 0;
-    margin-left: auto;
-    font-family: var(--font-display);
-    font-size: var(--font-size-md);
-    color: var(--color-text-muted);
+  .logo-text {
+    display: none;
+    min-width: 0;
   }
 
-  .last-updated .time {
-    font-family: var(--font-body);
-    font-style: italic;
-    font-size: var(--font-size-sm);
+  .title {
+    font-size: 21px;
+    font-weight: 700;
+  }
+
+  nav {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+  }
+
+  .nav-button {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    width: 100%;
+    height: 38px;
+    border-radius: var(--radius);
+    color: var(--subtext);
+    font-size: 15px;
+    font-weight: 500;
+  }
+
+  .nav-button:hover {
+    background: var(--surface);
+  }
+
+  .nav-button.active {
+    background: var(--accent);
+    color: var(--text-contrast);
+  }
+
+  .icon {
+    width: 20px;
+    flex: none;
+    text-align: center;
+  }
+
+  .label {
+    display: none;
+  }
+
+  .save-time {
+    padding: 0 28px 28px;
+  }
+
+  @media (min-width: 800px) {
+    .sidebar {
+      width: 218px;
+      align-items: stretch;
+    }
+
+    .logo-text {
+      display: block;
+    }
+
+    .nav-button {
+      justify-content: flex-start;
+      height: 32px;
+      padding: 0 8px;
+      text-align: left;
+    }
+
+    .label {
+      display: block;
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
   }
 </style>

@@ -108,14 +108,6 @@ fn role_from_profession_id(id: u64) -> Option<Role> {
 
 #[derive(Clone, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
-pub enum CollectionStatus {
-    InVillage,
-    InRealm,
-    Locked,
-}
-
-#[derive(Clone, serde::Serialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
 pub enum GiftCategory {
     Produce,
     Meal,
@@ -156,13 +148,11 @@ pub struct PreferredGift {
 pub struct Villager {
     pub id: u32,
     pub name: String,
-    pub status: CollectionStatus,
     pub role: Option<Role>,
     pub friendship_level: u8,
     pub friendship_xp: u32,
     pub is_maxed: bool,
     pub gifts: Vec<PreferredGift>,
-    pub last_gift_secs: Option<i64>,
 }
 
 #[derive(Default, Deserialize)]
@@ -175,7 +165,6 @@ struct SavedCharacter {
     friendship_xp: u32,
     #[serde(rename = "ProfessionID")]
     profession_id: u64,
-    last_gift_date: Option<String>,
     preferred_item_slots: Vec<SavedGiftSlot>,
     preferred_item_status: HashMap<String, String>,
 }
@@ -193,17 +182,8 @@ struct SavedGiftSlot {
 }
 
 impl SavedCharacter {
-    fn status(&self) -> CollectionStatus {
-        match self.status.as_str() {
-            "CharacterStatus_InVillage" => CollectionStatus::InVillage,
-            "CharacterStatus_InRealm" => CollectionStatus::InRealm,
-            _ => CollectionStatus::Locked,
-        }
-    }
-
-    fn last_gift_secs(&self) -> Option<i64> {
-        let date = self.last_gift_date.as_deref()?;
-        Some(chrono::DateTime::parse_from_rfc3339(date).ok()?.timestamp())
+    fn in_village(&self) -> bool {
+        self.status == "CharacterStatus_InVillage"
     }
 
     fn gifts(&self, names: &HashMap<u32, String>) -> Vec<PreferredGift> {
@@ -244,21 +224,23 @@ pub(crate) fn collect(loaded: &LoadedSave) -> Result<Vec<Villager>, AppError> {
         .unwrap_or_default();
 
     let locked = SavedCharacter::default();
+    // villagers not yet in the village are dropped so unreleased arrivals are not spoiled
     let villagers = VILLAGER_ROSTER
         .iter()
-        .map(|&id| {
+        .filter_map(|&id| {
             let saved = by_id.get(&id).unwrap_or(&locked);
-            Villager {
+            if !saved.in_village() {
+                return None;
+            }
+            Some(Villager {
                 id,
                 name: names.get(&id).cloned().unwrap_or_default(),
-                status: saved.status(),
                 role: role_from_profession_id(saved.profession_id),
                 friendship_level: saved.friendship_level,
                 friendship_xp: saved.friendship_xp,
                 is_maxed: saved.friendship_level == 10,
                 gifts: saved.gifts(&names),
-                last_gift_secs: saved.last_gift_secs(),
-            }
+            })
         })
         .collect();
 

@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use serde_json::Value;
 
@@ -27,7 +27,14 @@ pub struct ChecklistFacts {
 #[serde(rename_all = "camelCase")]
 pub struct ScroogeStore {
     location: Option<String>,
-    count: u32,
+    new_items: Vec<ScroogeItem>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ScroogeItem {
+    id: u32,
+    name: String,
 }
 
 #[derive(Clone, serde::Serialize, specta::Type)]
@@ -116,6 +123,7 @@ fn scrooge_stores(loaded: &LoadedSave) -> Vec<ScroogeStore> {
     };
 
     let owned = owned_item_ids(save);
+    let names = super::game_data::cached_item_names(&loaded.storefront).ok();
     let reset_secs = super::resets::latest_reset_secs(
         chrono::Utc::now().timestamp(),
         super::read_tz_offset(save),
@@ -129,69 +137,75 @@ fn scrooge_stores(loaded: &LoadedSave) -> Vec<ScroogeStore> {
             continue;
         }
 
-        let Some(displays) = store.get("Displays").and_then(|v| v.as_array()) else {
+        let new_items = new_items_in_store(store, &owned, names.as_deref());
+        if new_items.is_empty() {
             continue;
-        };
-
-        let count = displays
-            .iter()
-            .filter_map(|display| {
-                display
-                    .pointer("/DisplayInfo/Slots")
-                    .and_then(|v| v.as_array())
-            })
-            .flat_map(|slots| slots.iter())
-            .filter(|slot| {
-                slot.get("IsAvailable").and_then(|v| v.as_bool()) == Some(true)
-                    && slot
-                        .pointer("/Item/id")
-                        .and_then(|v| v.as_u64())
-                        .is_some_and(|id| !owned.contains(&id))
-            })
-            .count() as u32;
-
-        if count > 0 {
-            let location = store
-                .get("BuildingItemID")
-                .and_then(|v| v.as_u64())
-                .and_then(|id| building_zone(loaded, id));
-            result.push(ScroogeStore { location, count });
         }
+
+        let location = store
+            .get("BuildingItemID")
+            .and_then(|v| v.as_u64())
+            .and_then(|id| building_zone(loaded, id));
+        result.push(ScroogeStore {
+            location,
+            new_items,
+        });
     }
     result
 }
-fn owned_item_ids(save: &Value) -> HashSet<u64> {
-    let Some(sets) = save
-        .pointer("/Player/CollectionSets")
-        .and_then(|v| v.as_array())
-    else {
-        return HashSet::new();
+
+fn new_items_in_store(
+    store: &Value,
+    owned: &HashSet<u64>,
+    names: Option<&HashMap<u32, String>>,
+) -> Vec<ScroogeItem> {
+    let Some(displays) = store.get("Displays").and_then(|v| v.as_array()) else {
+        return Vec::new();
     };
 
-    let mut owned = HashSet::new();
-    for set in sets {
-        let Some(groups) = set.get("GroupData").and_then(|v| v.as_array()) else {
-            continue;
-        };
-        for group in groups {
-            let Some(items) = group
-                .get("GroupsCollectionItems")
-                .and_then(|v| v.as_object())
-            else {
-                continue;
-            };
-            for (key, value) in items {
-                if value.as_bool() != Some(true) {
-                    continue;
-                }
-                let Ok(id) = key.parse::<u64>() else {
-                    continue;
-                };
-                owned.insert(id);
+    displays
+        .iter()
+        .filter_map(|display| {
+            display
+                .pointer("/DisplayInfo/Slots")
+                .and_then(|v| v.as_array())
+        })
+        .flatten()
+        .filter_map(|slot| {
+            let id = slot.pointer("/Item/id")?.as_u64()?;
+            if slot.get("IsAvailable").and_then(|v| v.as_bool()) != Some(true)
+                || owned.contains(&id)
+            {
+                return None;
             }
+            let id = id as u32;
+            Some(ScroogeItem {
+                id,
+                name: names
+                    .and_then(|names| names.get(&id))
+                    .cloned()
+                    .unwrap_or_default(),
+            })
+        })
+        .collect()
+}
+fn owned_item_ids(save: &Value) -> HashSet<u64> {
+    let mut owned = HashSet::new();
+
+    for inventory in object_values(save.pointer("/Player/ListInventories")) {
+        if let Some(items) = inventory.get("Inventory").and_then(|v| v.as_object()) {
+            owned.extend(items.keys().filter_map(|key| key.parse::<u64>().ok()));
         }
     }
+
     owned
+}
+
+fn object_values(value: Option<&Value>) -> impl Iterator<Item = &Value> {
+    value
+        .and_then(|v| v.as_object())
+        .into_iter()
+        .flat_map(|items| items.values())
 }
 
 fn placed_object_biomes(save: &Value, matches: fn(&Value) -> bool) -> Vec<Option<String>> {
@@ -267,4 +281,85 @@ fn challenge_number(key: &str) -> Option<u32> {
         .collect::<String>()
         .parse()
         .ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::collections::{HashMap, HashSet};
+
+    fn store_with_slots(slots: Value) -> Value {
+        json!({ "Displays": [{ "DisplayInfo": { "Slots": slots } }] })
+    }
+
+    fn names(pairs: &[(u32, &str)]) -> HashMap<u32, String> {
+        pairs
+            .iter()
+            .map(|&(id, name)| (id, name.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn available_unowned_slots_report_names() {
+        let store = store_with_slots(json!([
+            { "Item": { "id": 40002844 }, "IsAvailable": true },
+            { "Item": { "id": 50000001 }, "IsAvailable": true },
+            { "Item": { "id": 50000002 }, "IsAvailable": false },
+            { "Item": null, "IsAvailable": true },
+        ]));
+        let owned = HashSet::from([50000001]);
+        let names = names(&[(40002844, "Sharpening Stone"), (50000002, "Sold Out")]);
+
+        let items = new_items_in_store(&store, &owned, Some(&names));
+
+        assert_eq!(
+            items,
+            vec![ScroogeItem {
+                id: 40002844,
+                name: "Sharpening Stone".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn held_items_are_owned() {
+        let owned = owned_item_ids(&json!({
+            "Player": { "ListInventories": {
+                "0": { "Inventory": { "40002859": { "Amount": 0 } } },
+                "1": { "Inventory": { "50000001": { "Amount": 1 } } },
+            }}
+        }));
+
+        assert!(owned.contains(&40002859));
+        assert!(owned.contains(&50000001));
+        assert!(!owned.contains(&40006011));
+    }
+
+    #[test]
+    fn held_items_are_never_reported_new() {
+        let owned = owned_item_ids(&json!({
+            "Player": { "ListInventories": {
+                "0": { "Inventory": { "40002859": { "Amount": 0 } } },
+            }}
+        }));
+        let store = store_with_slots(json!([
+            { "Item": { "id": 40002859 }, "IsAvailable": true },
+            { "Item": { "id": 40006011 }, "IsAvailable": true },
+        ]));
+        let names = names(&[
+            (40002859, "Weapons Rack"),
+            (40006011, "Pooh's Standing Mirror"),
+        ]);
+
+        let items = new_items_in_store(&store, &owned, Some(&names));
+
+        assert_eq!(
+            items,
+            vec![ScroogeItem {
+                id: 40006011,
+                name: "Pooh's Standing Mirror".to_string(),
+            }]
+        );
+    }
 }

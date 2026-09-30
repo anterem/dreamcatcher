@@ -5,8 +5,8 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 
 /** Commands */
 export const commands = {
-	getSaveFiles: () => typedError<SaveFile[], AppError>(__TAURI_INVOKE("get_save_files")),
-	loadSaveFile: (path: string, storefront: Storefront) => typedError<null, AppError>(__TAURI_INVOKE("load_save_file", { path, storefront })),
+	getSaveFiles: () => typedError<SaveFile[], string>(__TAURI_INVOKE("get_save_files")),
+	loadSaveFile: (path: string, storefront: Storefront) => typedError<null, string>(__TAURI_INVOKE("load_save_file", { path, storefront })),
 	getDisplayNames: (storefront: Storefront) => typedError<{ [key in number]: string }, AppError>(__TAURI_INVOKE("get_display_names", { storefront })),
 	getSnapshot: () => typedError<Snapshot, AppError>(__TAURI_INVOKE("get_snapshot")),
 };
@@ -26,13 +26,6 @@ export type ChecklistFacts = {
 	scroogeStores: ScroogeStore[],
 };
 
-export type ScroogeStore = {
-	location: string | null,
-	count: number,
-};
-
-export type CollectionStatus = "inVillage" | "inRealm" | "locked";
-
 export type Critter = {
 	itemId: number,
 	name: string,
@@ -42,7 +35,6 @@ export type Critter = {
 	notes: string[],
 	schedule: Schedule[][],
 	tamed: boolean,
-	unlocked: boolean,
 	lastFeedingSecs: number | null,
 };
 
@@ -76,6 +68,16 @@ export type Schedule = {
 	end: number,
 };
 
+export type ScroogeItem = {
+	id: number,
+	name: string,
+};
+
+export type ScroogeStore = {
+	location: string | null,
+	newItems: ScroogeItem[],
+};
+
 export type Section<T> = { status: "ok"; data: T } | { status: "error"; error: string };
 
 export type Snapshot = {
@@ -91,13 +93,11 @@ export type Storefront = "steam" | "epic" | "microsoft";
 export type Villager = {
 	id: number,
 	name: string,
-	status: CollectionStatus,
 	role: Role | null,
 	friendshipLevel: number,
 	friendshipXp: number,
 	isMaxed: boolean,
 	gifts: PreferredGift[],
-	lastGiftSecs: number | null,
 };
 
 /* Tauri Specta runtime */
@@ -110,17 +110,22 @@ async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; dat
     }
 }
 
-function makeEvent<T>(name: string) {
+type EventEmit<T> = [T] extends [null] ? () => Promise<void> : (payload: T) => Promise<void>;
+
+function makeEvent<T>(name: string, serialize?: (payload: T) => unknown, deserialize?: (payload: any) => T) {
+    const mapEvent = (cb: __TAURI_EVENT.EventCallback<T>) => (event: __TAURI_EVENT.Event<any>) => cb({ ...event, payload: deserialize ? deserialize(event.payload) : event.payload });
+    const mapPayload = (payload: T) => serialize ? serialize(payload) : payload;
+
     const base = {
-        listen: (cb: __TAURI_EVENT.EventCallback<T>) => __TAURI_EVENT.listen(name, cb),
-        once: (cb: __TAURI_EVENT.EventCallback<T>) => __TAURI_EVENT.once(name, cb),
-        emit: ((payload: T) => __TAURI_EVENT.emit(name, payload) as unknown) as (T extends null ? () => Promise<void> : (payload: T) => Promise<void>)
+        listen: (cb: __TAURI_EVENT.EventCallback<T>) => __TAURI_EVENT.listen(name, mapEvent(cb)),
+        once: (cb: __TAURI_EVENT.EventCallback<T>) => __TAURI_EVENT.once(name, mapEvent(cb)),
+        emit: ((payload: T) => __TAURI_EVENT.emit(name, mapPayload(payload)) as unknown) as EventEmit<T>
     };
 
     const fn = (target: import("@tauri-apps/api/webview").Webview | import("@tauri-apps/api/window").Window) => ({
-        listen: (cb: __TAURI_EVENT.EventCallback<T>) => target.listen(name, cb),
-        once: (cb: __TAURI_EVENT.EventCallback<T>) => target.once(name, cb),
-        emit: ((payload: T) => target.emit(name, payload) as unknown) as (T extends null ? () => Promise<void> : (payload: T) => Promise<void>)
+        listen: (cb: __TAURI_EVENT.EventCallback<T>) => target.listen(name, mapEvent(cb)),
+        once: (cb: __TAURI_EVENT.EventCallback<T>) => target.once(name, mapEvent(cb)),
+        emit: ((payload: T) => target.emit(name, mapPayload(payload)) as unknown) as EventEmit<T>
     });
 
     return Object.assign(fn, base);
