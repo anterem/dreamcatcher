@@ -1,38 +1,34 @@
 <script lang="ts">
-  import { snapshot } from '$lib/snapshot.svelte';
+  import { save } from '$lib/save.svelte';
   import { clock } from '$lib/clock.svelte';
-  import { critters } from '$lib/live.svelte';
-  import { localWeekday, type LiveCritter } from '$lib/time';
-  import { WEEKDAY_NAMES, formatSchedule } from '$lib/utils';
+  import { localHour, localWeekday, upcomingWindowStart } from '$lib/time';
+  import { critterStatus, type CritterStatus } from './status';
+  import { WEEKDAY_NAMES, formatHour, formatSchedule } from '$lib/utils';
   import { PersistedState } from '$lib/persisted.svelte';
   import FilterToggle from '$lib/components/FilterToggle.svelte';
+  import PageHeader from '$lib/components/PageHeader.svelte';
 
-  let tz = $derived(snapshot.current?.tzOffset ?? 0);
+  let tz = $derived(save.current?.tzOffset ?? 0);
   let todayIndex = $derived(localWeekday(clock.nowSecs, tz));
   let selectedDay = $state<number | null>(null);
   let activeDay = $derived(selectedDay ?? todayIndex);
   let isToday = $derived(activeDay === todayIndex);
   let prevDayName = $derived(WEEKDAY_NAMES[(activeDay + 6) % 7]);
   let nextDayName = $derived(WEEKDAY_NAMES[(activeDay + 1) % 7]);
+  let nowHour = $derived(localHour(clock.nowSecs, tz));
+  let allCritters = $derived(save.critters.data.map((c) => critterStatus(c, clock.nowSecs, tz)));
 
-  const onlyUnlocked = new PersistedState('critters.unlocked', false);
-  const onlyAvailable = new PersistedState('critters.availableNow', false);
   const onlyToFeed = new PersistedState('critters.toFeed', false);
   const onlyUntamed = new PersistedState('critters.untamed', false);
 
   let dayCritters = $derived.by(() => {
-    let list = critters.data.filter((c) => c.schedule[activeDay].length > 0);
-    if (onlyUnlocked.current) list = list.filter((c) => c.unlocked);
-    if (isToday && onlyAvailable.current) list = list.filter((c) => c.availableNow);
+    let list = allCritters.filter((c) => c.schedule[activeDay].length > 0);
     if (isToday && onlyToFeed.current) list = list.filter((c) => c.needsFeeding);
     if (onlyUntamed.current) list = list.filter((c) => !c.tamed);
     return list.toSorted(compareOnDay(activeDay));
   });
-  let anyFilterActive = $derived(
-    onlyUnlocked.current ||
-      onlyUntamed.current ||
-      (isToday && (onlyAvailable.current || onlyToFeed.current))
-  );
+  let available = $derived(isToday ? dayCritters.filter((c) => c.availableNow) : dayCritters);
+  let unavailable = $derived(isToday ? dayCritters.filter((c) => !c.availableNow) : []);
 
   function prevDay() {
     selectedDay = (activeDay + 6) % 7;
@@ -47,221 +43,159 @@
   }
 
   function compareOnDay(day: number) {
-    return (a: LiveCritter, b: LiveCritter) => {
+    return (a: CritterStatus, b: CritterStatus) => {
       const sa = a.schedule[day][0];
       const sb = b.schedule[day][0];
       return sa.start - sb.start || sb.end - sa.end || a.speciesRank - b.speciesRank;
     };
   }
+
+  function availableAt(critter: CritterStatus): string | null {
+    if (!isToday || critter.availableNow || critter.fedToday) return null;
+    const opens = upcomingWindowStart(critter.schedule[activeDay], nowHour);
+    return opens === null ? null : `opens at ${formatHour(opens)}`;
+  }
 </script>
 
-<main>
-  {#if critters.loading}
-    <p class="status"><em>Reading your save…</em></p>
-  {:else if critters.error}
-    <p class="status">Something went amiss: <span class="error">{critters.error}</span></p>
-  {:else if critters.data.length === 0}
-    <p class="status">
-      <em>No critter data found.</em><br />
-      Make sure the game files are installed and a save is loaded.
-    </p>
-  {:else}
-    <nav class="day-nav">
-      <button class="arrow prev" onclick={prevDay} aria-label={`Previous day, ${prevDayName}`}
-        >☜<span class="day-name">{prevDayName}</span></button
+<section class="page">
+  <PageHeader title="Critters">
+    <span class="day-switch">
+      <button class="day-arrow" onclick={prevDay} aria-label={`Previous day, ${prevDayName}`}
+        >‹</button
       >
-      <div class="day-title">
-        {#if isToday}
-          <h2>Today</h2>
-          <p class="day-note">{WEEKDAY_NAMES[activeDay]}</p>
-        {:else}
-          <h2>{WEEKDAY_NAMES[activeDay]}</h2>
-          <button class="today-link" onclick={goToToday}>return to today</button>
-        {/if}
-      </div>
-      <button class="arrow next" onclick={nextDay} aria-label={`Next day, ${nextDayName}`}
-        ><span class="day-name">{nextDayName}</span>☞</button
+      <button
+        class="day-label"
+        onclick={goToToday}
+        disabled={isToday}
+        title={isToday ? undefined : 'Return to today'}
       >
-    </nav>
+        {WEEKDAY_NAMES[activeDay]}{#if isToday}<span>(Today)</span>{/if}
+      </button>
+      <button class="day-arrow" onclick={nextDay} aria-label={`Next day, ${nextDayName}`}>›</button>
+    </span>
+  </PageHeader>
 
-    <div class="filters">
-      <span class="filters-label">filter by:</span>
+  <div class="toolbar">
+    <span class="toggle-group">
       <FilterToggle
-        label="unlocked"
-        active={onlyUnlocked.current}
-        onclick={() => (onlyUnlocked.current = !onlyUnlocked.current)}
+        label="To feed"
+        active={onlyToFeed.current}
+        onclick={() => (onlyToFeed.current = !onlyToFeed.current)}
       />
-      {#if isToday}
-        <FilterToggle
-          glyph="●"
-          tone="primary"
-          label="available now"
-          active={onlyAvailable.current}
-          onclick={() => (onlyAvailable.current = !onlyAvailable.current)}
-        />
-        <FilterToggle
-          glyph="✓"
-          label="to feed"
-          active={onlyToFeed.current}
-          onclick={() => (onlyToFeed.current = !onlyToFeed.current)}
-        />
-      {/if}
       <FilterToggle
-        glyph="♥"
-        tone="accent"
-        label="untamed"
+        label="Untamed"
         active={onlyUntamed.current}
         onclick={() => (onlyUntamed.current = !onlyUntamed.current)}
       />
-    </div>
+    </span>
+  </div>
 
-    {#if dayCritters.length === 0}
-      <p class="status">
-        <em>{anyFilterActive ? 'None match.' : 'No creatures stir this day.'}</em>
-      </p>
-    {:else}
-      <ol class="ledger">
-        {#each dayCritters as critter (critter.itemId)}
-          {@const available = isToday && critter.availableNow}
-          {@const fed = isToday && critter.fedToday}
-          <li class="entry" class:faded={isToday && !available}>
-            <span
-              class="pip"
-              class:now={available && !fed}
-              title={fed ? 'fed today' : available ? 'available now' : undefined}
-              >{fed ? '✓' : available ? '●' : ''}</span
-            >
-            <span class="strong">
-              {critter.name}{#if critter.notes.length > 0}<abbr class="dagger" title={critter.notes.join(' · ')}>†</abbr
-                >{/if}
-            </span>
-            {#if critter.tamed}<span class="badge" title="tamed">♥</span>{/if}
-            <span class="biome">{critter.biome}</span>
-            <span class="leader" aria-hidden="true"></span>
-            <span class="time">{formatSchedule(critter.schedule[activeDay])}</span>
-          </li>
+  {#if save.critters.loading}
+    <p class="message"><em>Reading your save…</em></p>
+  {:else if save.critters.error}
+    <p class="message">Error: {save.critters.error}</p>
+  {:else if save.critters.data.length === 0}
+    <p class="message">No critter data found.</p>
+  {:else if dayCritters.length === 0}
+    <p class="message">No critters on the schedule.</p>
+  {:else}
+    <div class="grid wide">
+      {#snippet card(critter: CritterStatus, dim = false)}
+        {@const nextAvailableAt = availableAt(critter)}
+        <div class="item critter" class:dim>
+          <span class="name">
+            {critter.name}
+            {#if isToday && critter.fedToday}<span class="chip accent">✓</span>{/if}
+            {#if critter.tamed}<span class="chip tamed">♥</span>{/if}
+          </span>
+          <span class="subtext">
+            {critter.biome} · {formatSchedule(critter.schedule[activeDay])}
+            {#if critter.notes.length > 0}
+              · {critter.notes.join(', ')}{/if}
+            {#if nextAvailableAt}
+              <span class="accent"> · {nextAvailableAt}</span>
+            {/if}
+          </span>
+        </div>
+      {/snippet}
+      {#if isToday}
+        <div class="group-heading">Available now</div>
+        {#each available as critter (critter.itemId)}
+          {@render card(critter)}
+        {:else}
+          <p class="empty">No critters.</p>
         {/each}
-      </ol>
-    {/if}
+        <div class="group-heading">Unavailable</div>
+        {#each unavailable as critter (critter.itemId)}
+          {@render card(critter, true)}
+        {:else}
+          <p class="empty">No critters.</p>
+        {/each}
+      {:else}
+        {#each dayCritters as critter (critter.itemId)}{@render card(critter)}{/each}
+      {/if}
+    </div>
   {/if}
-</main>
+</section>
 
 <style>
-  main {
-    max-width: 34rem;
-    margin-inline: auto;
-  }
-
-  .day-nav {
-    display: grid;
-    grid-template-columns: auto 1fr auto;
-    align-items: center;
-    gap: var(--space-3);
-    margin-bottom: var(--space-4);
-  }
-
-  .arrow {
+  .day-switch {
     display: inline-flex;
     align-items: center;
-    gap: var(--space-2);
-    background: none;
-    border: 0;
-    cursor: pointer;
-    padding: var(--space-1) var(--space-3);
-    font-size: var(--font-size-xl);
-    line-height: 1;
-    color: var(--color-text-muted);
-    transition:
-      color var(--duration-fast) var(--ease-out),
-      transform var(--duration-fast) var(--ease-out);
+    gap: 3px;
   }
 
-  .day-name {
-    font-family: var(--font-display);
-    font-size: var(--font-size-md);
-  }
-  .arrow:hover {
-    color: var(--color-primary);
-  }
-  .arrow.prev:hover {
-    transform: translateX(-3px);
-  }
-  .arrow.next:hover {
-    transform: translateX(3px);
-  }
-  .day-title {
-    text-align: center;
-  }
-  .day-title h2 {
-    font-size: var(--font-size-xl);
-  }
-
-  .day-note {
-    font-style: italic;
-    font-size: var(--font-size-sm);
-    color: var(--color-primary);
-  }
-
-  .today-link {
+  .day-label {
     background: none;
     border: 0;
     padding: 0;
     cursor: pointer;
-    font-family: var(--font-body);
-    font-style: italic;
-    font-size: var(--font-size-sm);
-    color: var(--color-link);
-    text-decoration: underline;
-    text-decoration-thickness: 1px;
-    text-underline-offset: 2px;
-  }
-  .today-link:hover {
-    color: var(--color-primary-hover);
+    font-size: 15px;
+    font-weight: 700;
+    white-space: nowrap;
   }
 
-  .entry {
-    display: flex;
-    align-items: baseline;
-    gap: var(--space-2);
-    padding: 0.1rem 0;
+  .day-label:hover:not(:disabled) {
+    color: var(--text);
   }
 
-  .entry.faded {
-    opacity: 0.5;
+  .day-label:disabled {
+    cursor: default;
   }
 
-  .pip {
-    flex: none;
-    width: 1rem;
-    text-align: center;
-    font-size: var(--font-size-sm);
-  }
-  .pip.now {
-    color: var(--color-primary);
+  .day-label span {
+    color: var(--subtext);
+    font-weight: 400;
+    font-size: 13px;
   }
 
-  .dagger {
-    color: var(--color-accent);
-    text-decoration: none;
-    cursor: help;
-    margin-left: 0.15em;
+  .day-arrow {
+    width: 26px;
+    height: 26px;
+    border-radius: var(--radius);
+    color: var(--subtext);
+    font-size: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 
-  .time {
-    flex: none;
-    font-size: var(--font-size-sm);
-    color: var(--color-text-subtle);
+  .day-arrow:hover {
+    background: var(--surface);
+    color: var(--text);
   }
 
-  .badge {
-    flex: none;
-    font-size: var(--font-size-sm);
-    color: var(--color-accent);
+  .accent {
+    color: var(--accent);
   }
 
-  .biome {
-    flex: none;
-    font-size: var(--font-size-sm);
-    color: var(--color-text-subtle);
+  .tamed {
+    color: var(--soft);
+  }
+
+  .empty {
+    padding: 7px 8px;
+    font-size: 15px;
+    color: var(--subtext);
   }
 </style>

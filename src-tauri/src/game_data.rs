@@ -456,6 +456,9 @@ fn load_item_names(storefront: &Storefront) -> Result<HashMap<u32, String>, supe
         ("Companion", 120_000_000..120_300_000),
         ("Character", 10_000_000..10_100_000),
         ("ActivityItem", 30_000_000..32_000_000),
+        ("Furniture", 40_000_000..42_000_000),
+        ("Clothing", 50_000_000..52_000_000),
+        ("Trimming", 160_000_000..161_200_000),
     ];
     let mut names = HashMap::new();
 
@@ -517,8 +520,7 @@ pub fn cached_companion_links(
     Ok(links)
 }
 
-static MENU_CACHE: Mutex<Option<(Storefront, Arc<HashMap<String, String>>)>> =
-    Mutex::new(None);
+static MENU_CACHE: Mutex<Option<(Storefront, Arc<HashMap<String, String>>)>> = Mutex::new(None);
 
 pub(crate) fn cached_menu_labels(
     storefront: &Storefront,

@@ -1,9 +1,5 @@
 declare global {
-  namespace App {
-    interface PageData {
-      title?: string;
-    }
-  }
+  namespace App {}
 }
 
 export {};

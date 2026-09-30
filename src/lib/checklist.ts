@@ -1,38 +1,45 @@
-import type { ChecklistFacts } from './bindings';
+import type { ChecklistFacts, ScroogeStore } from './bindings';
 
 export type ChecklistItem =
-  | { kind: 'moonstoneChest'; biome: string | null }
-  | { kind: 'rift'; biome: string | null }
-  | { kind: 'dreamSnapSubmission' }
-  | { kind: 'dreamSnapVoting' }
-  | { kind: 'scroogeStore'; location: string | null; count: number };
+  | { kind: 'moonstoneChest'; location: string | null }
+  | { kind: 'rift'; location: string | null }
+  | { kind: 'dreamSnapSubmission'; location: null }
+  | { kind: 'dreamSnapVoting'; location: null }
+  | ({ kind: 'scroogeStore' } & ScroogeStore);
 
 export function liveChecklist(facts: ChecklistFacts): ChecklistItem[] {
   const items: ChecklistItem[] = facts.moonstoneChestBiomes.map((biome) => ({
     kind: 'moonstoneChest',
-    biome
+    location: biome
   }));
-  for (const biome of facts.riftBiomes) items.push({ kind: 'rift', biome });
-  if (facts.dreamSnaps?.submitNeeded) items.push({ kind: 'dreamSnapSubmission' });
-  if (facts.dreamSnaps?.voteNeeded) items.push({ kind: 'dreamSnapVoting' });
-  for (const store of facts.scroogeStores)
-    items.push({ kind: 'scroogeStore', location: store.location, count: store.count });
+  for (const biome of facts.riftBiomes) items.push({ kind: 'rift', location: biome });
+  if (facts.dreamSnaps?.submitNeeded) items.push({ kind: 'dreamSnapSubmission', location: null });
+  if (facts.dreamSnaps?.voteNeeded) items.push({ kind: 'dreamSnapVoting', location: null });
+  for (const store of facts.scroogeStores) items.push({ kind: 'scroogeStore', ...store });
   return items;
 }
 
 export function checklistLabel(item: ChecklistItem): string {
   switch (item.kind) {
     case 'moonstoneChest':
-      return item.biome ? `Daily Moonstone Chest (${item.biome})` : 'Daily Moonstone Chest';
+      return 'Daily Moonstone Chest';
     case 'rift':
-      return item.biome ? `Time Rift (${item.biome})` : 'Time Rift';
+      return 'Time Rift';
     case 'dreamSnapSubmission':
       return 'DreamSnaps: Submit a photo';
     case 'dreamSnapVoting':
       return 'DreamSnaps: Vote';
     case 'scroogeStore': {
-      const label = `Scrooge's Store: ${item.count} new item${item.count === 1 ? '' : 's'}`;
-      return item.location ? `${label} (${item.location})` : label;
+      const count = item.newItems.length;
+      return `Scrooge's Store: ${count} new item${count === 1 ? '' : 's'}`;
     }
   }
+}
+
+export function checklistDescription(item: ChecklistItem): string {
+  const details =
+    item.kind === 'scroogeStore'
+      ? item.newItems.map((entry) => entry.name || `Item ${entry.id}`).join(', ')
+      : null;
+  return [item.location, details].filter(Boolean).join(' · ');
 }

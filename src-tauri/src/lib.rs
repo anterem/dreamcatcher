@@ -190,8 +190,9 @@ fn load_save_file(
     app: AppHandle,
     path: PathBuf,
     storefront: game_data::Storefront,
-) -> Result<(), AppError> {
-    let contents = decrypt_save_file(&path)?;
+) -> Result<(), String> {
+    // stringify here so the frontend just displays errors (see Section::Error)
+    let contents = decrypt_save_file(&path).map_err(|e| e.to_string())?;
     store_and_emit(
         &app,
         LoadedSave {
@@ -200,7 +201,7 @@ fn load_save_file(
             storefront,
         },
     );
-    watch_save(&app, path)?;
+    watch_save(&app, path).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -237,14 +238,14 @@ pub(crate) fn get_modified_secs(path: &Path) -> Option<u32> {
 
 #[tauri::command]
 #[specta::specta]
-fn get_save_files() -> Result<Vec<SaveFile>, AppError> {
+fn get_save_files() -> Result<Vec<SaveFile>, String> {
     let Some(game_path) = get_game_folder() else {
         return Ok(vec![]);
     };
 
     let entries = match std::fs::read_dir(&game_path) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
-        result => result?,
+        result => result.map_err(|e| AppError::from(e).to_string())?,
     };
 
     let save_files: Vec<SaveFile> = entries
@@ -276,6 +277,11 @@ fn get_save_files() -> Result<Vec<SaveFile>, AppError> {
     Ok(save_files)
 }
 
+fn deck_gaming_mode() -> bool {
+    std::env::var("SteamOS").as_deref() == Ok("1")
+        && std::env::var("SteamGamepadUI").as_deref() == Ok("1")
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let specta_builder = tauri_specta::Builder::<tauri::Wry>::new()
@@ -304,6 +310,11 @@ pub fn run() {
         .invoke_handler(specta_builder.invoke_handler())
         .setup(move |app| {
             specta_builder.mount_events(app);
+            if deck_gaming_mode() {
+                if let Some(window) = app.get_webview_window("main") {
+                    window.set_fullscreen(true)?;
+                }
+            }
             Ok(())
         })
         .run(tauri::generate_context!())

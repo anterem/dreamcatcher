@@ -1,15 +1,9 @@
-# Dreamkeeper
+# Dreamcatcher
 
 A companion app for Dreamlight Valley.
 
-## Todo
+Features
 
-- [x] Locate save files
-- [x] Read save file metadata
-- [x] Select save file
-- [x] Decrypt and parse save file
-- [x] Extract game state from save
-- [-] Add reference data for collections
-- [-] Compare game state against reference data
-- [-] Display missing items
-- [ ] Show how to obtain missing items
+- Checklist: the daily moonstone chest location(s), time rift location(s), DreamSnaps and Star Path duties
+- Critters: availability schedule, feeding and taming status
+- Villagers: role, level and gift status

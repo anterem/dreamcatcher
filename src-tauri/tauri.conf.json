@@ -1,8 +1,9 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "dreamkeeper",
-  "version": "0.1.0",
-  "identifier": "com.mina.dreamkeeper",
+  "productName": "dreamcatcher",
+  "mainBinaryName": "Dreamcatcher",
+  "version": "1.0.0",
+  "identifier": "com.mina.dreamcatcher",
   "build": {
     "beforeDevCommand": "bun run dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +13,7 @@
   "app": {
     "windows": [
       {
-        "title": "Dreamkeeper",
+        "title": "Dreamcatcher",
         "width": 400,
         "height": 618,
         "minWidth": 400

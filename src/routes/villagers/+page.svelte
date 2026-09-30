@@ -1,158 +1,129 @@
 <script lang="ts">
-  import { type Role } from '$lib/bindings';
-  import { villagers } from '$lib/live.svelte';
-  import { ROLES, roleLabel } from '$lib/utils';
+  import type { Role } from '$lib/bindings';
+  import { save } from '$lib/save.svelte';
+  import { clock } from '$lib/clock.svelte';
+  import { villagerStatus, type VillagerStatus } from './status';
+  import { ROLES, ROLE_ICONS, roleLabel } from '$lib/utils';
   import { PersistedState } from '$lib/persisted.svelte';
   import FilterToggle from '$lib/components/FilterToggle.svelte';
+  import PageHeader from '$lib/components/PageHeader.svelte';
 
-  const onlyUnlocked = new PersistedState('villagers.unlocked', true);
-  const onlyFriendshipNeeded = new PersistedState('villagers.toLevel', false);
   const onlyGiftable = new PersistedState('villagers.toGift', false);
   const selectedRole = new PersistedState<Role | null>('villagers.role', null);
 
+  let allVillagers = $derived(
+    save.villagers.data.map((v) =>
+      villagerStatus(v, save.current?.modifiedSecs ?? 0, clock.nowSecs, save.current?.tzOffset ?? 0)
+    )
+  );
+
+  let toGiftCount = $derived(allVillagers.filter((v) => v.giftable).length);
+
   let shownVillagers = $derived.by(() => {
-    let list = villagers.data;
-    if (onlyUnlocked.current) list = list.filter((v) => v.status === 'inVillage');
-    if (onlyFriendshipNeeded.current)
-      list = list.filter((v) => v.status === 'inVillage' && !v.isMaxed);
-    if (onlyGiftable.current) list = list.filter((v) => v.needsGifting);
-    if (selectedRole.current !== null)
-      list = list.filter((v) => v.role === selectedRole.current);
+    let list = allVillagers;
+    if (onlyGiftable.current) list = list.filter((v) => v.giftable);
+    if (selectedRole.current !== null) list = list.filter((v) => v.role === selectedRole.current);
     return list;
   });
 
   let roleCounts = $derived.by(() => {
     const counts = new Map<Role, number>();
-    for (const v of villagers.data) {
-      if (v.status === 'inVillage' && v.role !== null) {
+    for (const v of allVillagers) {
+      if (v.role !== null) {
         counts.set(v.role, (counts.get(v.role) ?? 0) + 1);
       }
     }
     return counts;
   });
 
+  let toLevel = $derived(shownVillagers.filter((v) => !v.isMaxed));
+  let bestFriends = $derived(shownVillagers.filter((v) => v.isMaxed));
+
   function selectRole(role: Role) {
     selectedRole.current = selectedRole.current === role ? null : role;
   }
 </script>
 
-<main>
-  {#if villagers.loading}
-    <p class="status"><em>Reading your save…</em></p>
-  {:else if villagers.error}
-    <p class="status">Something went amiss: <span class="error">{villagers.error}</span></p>
-  {:else if villagers.data.length === 0}
-    <p class="status">
-      <em>No villager data found.</em><br />
-      Make sure the game files are installed and a save is loaded.
-    </p>
+<section class="page">
+  <PageHeader title="Villagers" />
+
+  <div class="toolbar">
+    <FilterToggle
+      label={`To gift (${toGiftCount})`}
+      active={onlyGiftable.current}
+      onclick={() => (onlyGiftable.current = !onlyGiftable.current)}
+    />
+    {#each ROLES as role (role)}
+      <FilterToggle
+        label={`${ROLE_ICONS[role]} ${roleLabel(role)} (${roleCounts.get(role) ?? 0})`}
+        active={selectedRole.current === role}
+        onclick={() => selectRole(role)}
+      />
+    {/each}
+  </div>
+
+  {#if save.villagers.loading}
+    <p class="message"><em>Reading your save…</em></p>
+  {:else if save.villagers.error}
+    <p class="message">Error: {save.villagers.error}</p>
+  {:else if save.villagers.data.length === 0}
+    <p class="message">No villager data found.</p>
   {:else}
-    <div class="filters">
-      <span class="filters-label">filter by:</span>
-      <FilterToggle
-        label="unlocked"
-        active={onlyUnlocked.current}
-        onclick={() => (onlyUnlocked.current = !onlyUnlocked.current)}
-      />
-      <FilterToggle
-        label="to level"
-        active={onlyFriendshipNeeded.current}
-        onclick={() => (onlyFriendshipNeeded.current = !onlyFriendshipNeeded.current)}
-      />
-      <FilterToggle
-        label="to gift"
-        active={onlyGiftable.current}
-        onclick={() => (onlyGiftable.current = !onlyGiftable.current)}
-      />
-      {#each ROLES as role}
-        <FilterToggle
-          label={`${role} (${roleCounts.get(role) ?? 0})`}
-          active={selectedRole.current === role}
-          onclick={() => selectRole(role)}
-        />
+    <div class="grid wide">
+      {#snippet card(villager: VillagerStatus)}
+        <div class="item villager">
+          <span class="name">
+            {villager.name}
+            {#if villager.role}
+              <span class="role" title={roleLabel(villager.role)}>{ROLE_ICONS[villager.role]}</span>
+            {/if}
+            {#if !villager.isMaxed}
+              <span class="level">({villager.friendshipLevel})</span>
+            {/if}
+          </span>
+          {#if villager.giftsAreCurrent}
+            <span class="chips">
+              {#each villager.gifts as gift (gift.itemId)}
+                <span class="chip" class:done={gift.gifted} class:dim={gift.gifted}
+                  >{gift.name}</span
+                >
+              {/each}
+            </span>
+          {/if}
+        </div>
+      {/snippet}
+      <div class="group-heading">To level</div>
+      {#each toLevel as villager (villager.id)}
+        {@render card(villager)}
+      {:else}
+        <p class="empty">Nothing to level.</p>
+      {/each}
+      <div class="group-heading">Best friends</div>
+      {#each bestFriends as villager (villager.id)}
+        {@render card(villager)}
+      {:else}
+        <p class="empty">None yet.</p>
       {/each}
     </div>
-
-    {#if shownVillagers.length === 0}
-      <p class="status"><em>None match.</em></p>
-    {:else}
-      <ol class="ledger">
-        {#each shownVillagers as villager (villager.id)}
-          {@const inVillage = villager.status === 'inVillage'}
-          <li class="card" class:faded={!inVillage}>
-            <div class="entry">
-              <span class="strong">{villager.name}</span>
-              {#if inVillage}
-                <span class="meta">Lv {villager.friendshipLevel}</span>
-              {/if}
-              <span class="leader" aria-hidden="true"></span>
-              {#if inVillage}
-                {#if villager.role}
-                  <span class="meta">{roleLabel(villager.role)}</span>
-                {/if}
-              {:else}
-                <span class="meta">Locked</span>
-              {/if}
-            </div>
-            {#if villager.gifts.length > 0}
-              <ul class="gifts">
-                {#each villager.gifts as gift}
-                  <li
-                    class:given={gift.giftedToday}
-                    title={gift.giftedToday ? 'gifted today' : undefined}
-                  >
-                    {gift.name}
-                  </li>
-                {/each}
-              </ul>
-            {/if}
-          </li>
-        {/each}
-      </ol>
-    {/if}
   {/if}
-</main>
+</section>
 
 <style>
-  main {
-    max-width: 34rem;
-    margin-inline: auto;
+  .role {
+    font-size: 15px;
   }
 
-  .card {
-    padding: var(--space-2) 0;
+  .level {
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
   }
 
-  .card.faded {
-    opacity: 0.5;
-  }
-
-  .entry {
-    display: flex;
-    align-items: baseline;
-    gap: var(--space-2);
-  }
-
-  .meta {
-    flex: none;
-    font-size: var(--font-size-sm);
-    color: var(--color-text-subtle);
-  }
-
-  .gifts {
-    margin: 0;
-    padding-left: var(--space-5);
-    list-style: disc;
-    color: var(--color-text-subtle);
-  }
-
-  .gifts li::marker {
-    content: '–\00a0\00a0';
-    color: var(--color-text-subtle);
-  }
-
-  .gifts li.given::marker {
-    content: '✓ ';
-    color: var(--color-accent);
+  .empty {
+    padding: 7px 8px;
+    font-size: 15px;
+    color: var(--subtext);
   }
 </style>

@@ -1,5 +1,3 @@
-import { formatRelativeTime } from './utils';
-
 const TICK_MS = 30_000;
 
 function createClock() {
@@ -22,8 +20,3 @@ function createClock() {
 }
 
 export const clock = createClock();
-
-export function liveRelativeTime(unixSeconds: number): string {
-  void clock.nowSecs; // to make function run on each tick
-  return formatRelativeTime(unixSeconds);
-}

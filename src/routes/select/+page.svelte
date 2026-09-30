@@ -2,9 +2,10 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { commands, type SaveFile } from '$lib/bindings';
-  import { loadedSaveFile } from '$lib/store';
-  import { snapshot } from '$lib/snapshot.svelte';
-  import { liveRelativeTime } from '$lib/clock.svelte';
+  import { loadedSaveFile } from '$lib/store.svelte';
+  import { save } from '$lib/save.svelte';
+  import { formatRelativeTime } from '$lib/utils';
+  import { clock } from '$lib/clock.svelte';
 
   let saveFiles: SaveFile[] = $state([]);
   let saveFilesError = $state('');
@@ -14,7 +15,7 @@
   async function getSaveFiles() {
     const res = await commands.getSaveFiles();
     if (res.status !== 'ok') {
-      saveFilesError = JSON.stringify(res.error);
+      saveFilesError = res.error;
       return;
     }
     saveFiles = res.data;
@@ -26,12 +27,12 @@
     loadError = '';
     const result = await commands.loadSaveFile(file.path, file.storefront);
     if (result.status === 'ok') {
-      await snapshot.refresh();
-      loadedSaveFile.set(file);
+      await save.refresh();
+      loadedSaveFile.current = file;
       goto('/');
     } else {
       loading = false;
-      loadError = JSON.stringify(result.error);
+      loadError = result.error;
     }
   }
 
@@ -39,26 +40,26 @@
 </script>
 
 <main>
+  <p class="title">Dreamcatcher</p>
   {#if saveFilesError}
-    <p class="status">An ill omen: <span class="error">{saveFilesError}</span></p>
+    <p class="message">Error: {saveFilesError}</p>
   {:else if loadError}
-    <p class="status">Could not read save: <span class="error">{loadError}</span></p>
+    <p class="message">Could not read save: {loadError}</p>
   {:else if loading}
-    <p class="status"><em>Reading save file…</em></p>
+    <p class="message"><em>Reading save file…</em></p>
   {:else if saveFiles.length === 0}
-    <p class="status">No save files were found in the usual places.</p>
+    <p class="message">No save files were found in the usual places.</p>
   {:else}
-    <p class="status"><em>Choose one to continue.</em></p>
-    <ul class="ruled">
-      {#each saveFiles as file}
+    <p class="message"><em>Choose a save to continue.</em></p>
+    <ul class="saves">
+      {#each saveFiles as file (file.path)}
         <li>
-          <label>
-            <input type="radio" name="save-file" onchange={() => load(file)} />
-            <span>
-              <span class="storefront">{file.storefront}</span>
-              Last updated <em>{liveRelativeTime(file.lastModified)}</em>
-            </span>
-          </label>
+          <button onclick={() => load(file)}>
+            <span class="storefront">{file.storefront}</span>
+            <span class="when"
+              >saved {formatRelativeTime(file.lastModified, clock.nowSecs * 1000)}</span
+            >
+          </button>
         </li>
       {/each}
     </ul>
@@ -67,16 +68,54 @@
 
 <style>
   main {
-    max-width: 44rem;
-    margin-inline: auto;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-5);
   }
 
-  .storefront::after {
-    content: '•';
-    margin-inline: 1rem;
+  .title {
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+    margin-bottom: var(--space-6);
+  }
+
+  .saves {
+    list-style: none;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: min(100%, 320px);
+  }
+
+  .saves button {
+    width: 100%;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: 10px 14px;
+    border-radius: var(--radius);
+    background: var(--surface);
+    text-align: left;
+  }
+
+  .saves button:hover {
+    background: var(--overlay);
   }
 
   .storefront {
-    text-transform: uppercase;
+    font-size: 15px;
+    font-weight: 600;
+    text-transform: capitalize;
+  }
+
+  .when {
+    font-size: 13px;
+    color: var(--subtext);
   }
 </style>

@@ -1,52 +1,37 @@
 <script lang="ts">
   let {
     label,
-    glyph,
-    tone = 'default',
     active = false,
     onclick
   }: {
     label: string;
-    glyph?: string;
-    tone?: 'default' | 'primary' | 'accent';
     active?: boolean;
     onclick: () => void;
   } = $props();
 </script>
 
-<button type="button" class="filter" class:active aria-pressed={active} {onclick}>
-  {#if glyph}<span class="glyph {tone}" aria-hidden="true">{glyph}</span>{/if}{label}
+<button type="button" class="toggle" class:active aria-pressed={active} {onclick}>
+  {label}
 </button>
 
 <style>
-  .filter {
-    background: none;
-    border: 0;
-    padding: 0;
-    cursor: pointer;
-    font-size: var(--font-size-md);
-    color: var(--color-text-muted);
-    transition: color var(--duration-fast) var(--ease-out);
+  .toggle {
+    height: 26px;
+    padding: 0 9px;
+    border-radius: var(--radius);
+    color: var(--subtext);
+    font-size: 15px;
+    font-weight: 500;
+    white-space: nowrap;
   }
 
-  .filter:hover {
-    color: var(--color-text-subtle);
+  .toggle:hover {
+    color: var(--text);
+    background: var(--surface);
   }
 
-  .filter.active {
-    color: var(--color-primary);
-    font-style: italic;
-  }
-
-  .glyph {
-    margin-right: 0.3em;
-  }
-
-  .glyph.primary {
-    color: var(--color-primary);
-  }
-
-  .glyph.accent {
-    color: var(--color-accent);
+  .toggle.active {
+    background: var(--overlay);
+    color: var(--text);
   }
 </style>
