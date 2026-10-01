@@ -1,6 +1,6 @@
 [package]
 name = "dreamcatcher"
-version = "1.1.0"
+version = "1.2.0"
 description = "A companion app for Dreamlight Valley."
 authors = ["anterem"]
 edition = "2024"
