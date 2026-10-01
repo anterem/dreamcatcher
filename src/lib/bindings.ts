@@ -24,6 +24,7 @@ export type ChecklistFacts = {
 	riftBiomes: (string | null)[],
 	dreamSnaps: DreamSnaps | null,
 	scroogeStores: ScroogeStore[],
+	starPaths: StarPath[],
 };
 
 export type Critter = {
@@ -86,6 +87,17 @@ export type Snapshot = {
 	critters: Section<Critter[]>,
 	villagers: Section<Villager[]>,
 	checklist: Section<ChecklistFacts>,
+};
+
+export type StarPath = {
+	name: string,
+	duties: StarPathDuty[],
+};
+
+export type StarPathDuty = {
+	duty: string,
+	progress: number,
+	target: number,
 };
 
 export type Storefront = "steam" | "epic" | "microsoft";

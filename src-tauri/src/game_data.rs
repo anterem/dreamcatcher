@@ -475,22 +475,32 @@ fn load_item_names(storefront: &Storefront) -> Result<HashMap<u32, String>, supe
     Ok(names)
 }
 
-static CACHE: Mutex<Option<(Storefront, Arc<HashMap<u32, String>>)>> = Mutex::new(None);
+type StorefrontCache<T> = Mutex<Option<(Storefront, Arc<T>)>>;
+
+fn cached<T>(
+    cache: &StorefrontCache<T>,
+    storefront: &Storefront,
+    load: impl FnOnce() -> Result<T, super::AppError>,
+) -> Result<Arc<T>, super::AppError> {
+    let mut cached = cache.lock().unwrap();
+    if let Some((cached_storefront, value)) = cached.as_ref()
+        && cached_storefront == storefront
+    {
+        return Ok(value.clone());
+    }
+
+    let value = Arc::new(load()?);
+    *cached = Some((storefront.clone(), value.clone()));
+    Ok(value)
+}
+
+static CACHE: StorefrontCache<HashMap<u32, String>> = Mutex::new(None);
 
 // cache item names to avoid re-parsing game files
 pub fn cached_item_names(
     storefront: &Storefront,
 ) -> Result<Arc<HashMap<u32, String>>, super::AppError> {
-    let mut cache = CACHE.lock().unwrap();
-    if let Some((cached_storefront, names)) = cache.as_ref() {
-        if cached_storefront == storefront {
-            return Ok(names.clone());
-        }
-    }
-
-    let names = Arc::new(load_item_names(storefront)?);
-    *cache = Some((storefront.clone(), names.clone()));
-    Ok(names)
+    cached(&CACHE, storefront, || load_item_names(storefront))
 }
 
 fn load_companion_links(storefront: &Storefront) -> Result<HashMap<u32, u32>, super::AppError> {
@@ -503,38 +513,45 @@ fn load_companion_links(storefront: &Storefront) -> Result<HashMap<u32, u32>, su
     ))
 }
 
-static COMPANION_CACHE: Mutex<Option<(Storefront, Arc<HashMap<u32, u32>>)>> = Mutex::new(None);
+static COMPANION_CACHE: StorefrontCache<HashMap<u32, u32>> = Mutex::new(None);
 
 pub fn cached_companion_links(
     storefront: &Storefront,
 ) -> Result<Arc<HashMap<u32, u32>>, super::AppError> {
-    let mut cache = COMPANION_CACHE.lock().unwrap();
-    if let Some((cached_storefront, links)) = cache.as_ref() {
-        if cached_storefront == storefront {
-            return Ok(links.clone());
-        }
-    }
-
-    let links = Arc::new(load_companion_links(storefront)?);
-    *cache = Some((storefront.clone(), links.clone()));
-    Ok(links)
+    cached(&COMPANION_CACHE, storefront, || {
+        load_companion_links(storefront)
+    })
 }
 
-static MENU_CACHE: Mutex<Option<(Storefront, Arc<HashMap<String, String>>)>> = Mutex::new(None);
+fn load_menu_labels(storefront: &Storefront) -> Result<HashMap<String, String>, super::AppError> {
+    Ok(parse_loc_map(&read_loc_entry(storefront, "menu.locbin")?))
+}
+
+static MENU_CACHE: StorefrontCache<HashMap<String, String>> = Mutex::new(None);
 
 pub(crate) fn cached_menu_labels(
     storefront: &Storefront,
 ) -> Result<Arc<HashMap<String, String>>, super::AppError> {
-    let mut cache = MENU_CACHE.lock().unwrap();
-    if let Some((cached_storefront, labels)) = cache.as_ref() {
-        if cached_storefront == storefront {
-            return Ok(labels.clone());
-        }
-    }
+    cached(&MENU_CACHE, storefront, || load_menu_labels(storefront))
+}
 
-    let labels = Arc::new(parse_loc_map(&read_loc_entry(storefront, "menu.locbin")?));
-    *cache = Some((storefront.clone(), labels.clone()));
-    Ok(labels)
+fn load_liveops_labels(
+    storefront: &Storefront,
+) -> Result<HashMap<String, String>, super::AppError> {
+    Ok(parse_loc_map(&read_loc_entry(
+        storefront,
+        "Liveops.locbin",
+    )?))
+}
+
+static LIVEOPS_CACHE: StorefrontCache<HashMap<String, String>> = Mutex::new(None);
+
+pub(crate) fn cached_liveops_labels(
+    storefront: &Storefront,
+) -> Result<Arc<HashMap<String, String>>, super::AppError> {
+    cached(&LIVEOPS_CACHE, storefront, || {
+        load_liveops_labels(storefront)
+    })
 }
 
 // display names for game ids: companions, characters, and items alike

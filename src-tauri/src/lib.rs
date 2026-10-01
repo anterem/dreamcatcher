@@ -22,6 +22,7 @@ mod critters;
 mod game_data;
 mod resets;
 mod snapshot;
+mod starpath;
 mod villagers;
 
 const KEY: [u8; 32] =
