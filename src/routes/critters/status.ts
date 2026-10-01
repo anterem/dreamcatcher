@@ -25,4 +25,3 @@ export function critterStatus(critter: Critter, nowSecs: number, tzOffset: numbe
     needsFeeding: availableNow && !fedToday
   };
 }
-

@@ -247,6 +247,11 @@ fn find_streaming_assets(storefront: &Storefront) -> Option<PathBuf> {
     }
 }
 
+fn streaming_assets(storefront: &Storefront) -> Result<PathBuf, super::AppError> {
+    find_streaming_assets(storefront)
+        .ok_or_else(|| super::AppError::NotFound("Could not locate game files".to_string()))
+}
+
 // protobuf records with unknown wrapper - have to scan for id and key instead of parsing
 fn resolve_display_names(
     bytes: &[u8],
@@ -427,9 +432,44 @@ fn skip_field(data: &[u8], pos: &mut usize, tag: u64) -> Option<()> {
     }
 }
 
+// StarPathFTUE task keys are saved inside protoDb.bin
+fn ftue_task_loc_keys_from_bytes(db: &[u8]) -> Vec<String> {
+    const MARKER: &[u8] = b"StarPathFtue.StarPathFTUE[Definitions.StarPathFtueConfig].proto.json";
+    let Some(start) = db.windows(MARKER.len()).position(|w| w == MARKER) else {
+        return Vec::new();
+    };
+    let region = &db[start + MARKER.len()..];
+    let end = region
+        .windows(b".proto.json".len())
+        .position(|w| w == b".proto.json")
+        .unwrap_or(region.len());
+    let region = &region[..end];
+
+    let mut keys = Vec::new();
+    for i in 0..region.len() {
+        if !region[i..].starts_with(b"Liveops.") {
+            continue;
+        }
+        let key_end = region[i..]
+            .iter()
+            .position(|b| !b.is_ascii_alphanumeric() && *b != b'_' && *b != b'.')
+            .map_or(region.len(), |p| i + p);
+        let key = std::str::from_utf8(&region[i..key_end]).unwrap_or_default();
+        if !key.ends_with("_Description") {
+            continue;
+        }
+        if key.contains("_Week") {
+            break;
+        }
+        if key.contains("_Task") {
+            keys.push(key["Liveops.".len()..].to_string());
+        }
+    }
+    keys
+}
+
 fn read_loc_entry(storefront: &Storefront, entry_name: &str) -> Result<Vec<u8>, super::AppError> {
-    let streaming_assets = find_streaming_assets(storefront)
-        .ok_or_else(|| super::AppError::NotFound("Could not locate game files".to_string()))?;
+    let streaming_assets = streaming_assets(storefront)?;
     let zip_bytes = read(
         streaming_assets
             .join("Localization")
@@ -448,8 +488,7 @@ fn read_loc_entry(storefront: &Storefront, entry_name: &str) -> Result<Vec<u8>, 
 }
 
 fn load_item_names(storefront: &Storefront) -> Result<HashMap<u32, String>, super::AppError> {
-    let streaming_assets = find_streaming_assets(storefront)
-        .ok_or_else(|| super::AppError::NotFound("Could not locate game files".to_string()))?;
+    let streaming_assets = streaming_assets(storefront)?;
 
     // disjoint id ranges, so merging every type into one map is collision-free
     let types = [
@@ -475,27 +514,36 @@ fn load_item_names(storefront: &Storefront) -> Result<HashMap<u32, String>, supe
     Ok(names)
 }
 
-static CACHE: Mutex<Option<(Storefront, Arc<HashMap<u32, String>>)>> = Mutex::new(None);
+type StorefrontCache<T> = Mutex<Option<(Storefront, Arc<T>)>>;
+
+fn cached<T>(
+    cache: &StorefrontCache<T>,
+    storefront: &Storefront,
+    load: impl FnOnce() -> Result<T, super::AppError>,
+) -> Result<Arc<T>, super::AppError> {
+    let mut cached = cache.lock().unwrap();
+    if let Some((cached_storefront, value)) = cached.as_ref()
+        && cached_storefront == storefront
+    {
+        return Ok(value.clone());
+    }
+
+    let value = Arc::new(load()?);
+    *cached = Some((storefront.clone(), value.clone()));
+    Ok(value)
+}
+
+static CACHE: StorefrontCache<HashMap<u32, String>> = Mutex::new(None);
 
 // cache item names to avoid re-parsing game files
 pub fn cached_item_names(
     storefront: &Storefront,
 ) -> Result<Arc<HashMap<u32, String>>, super::AppError> {
-    let mut cache = CACHE.lock().unwrap();
-    if let Some((cached_storefront, names)) = cache.as_ref() {
-        if cached_storefront == storefront {
-            return Ok(names.clone());
-        }
-    }
-
-    let names = Arc::new(load_item_names(storefront)?);
-    *cache = Some((storefront.clone(), names.clone()));
-    Ok(names)
+    cached(&CACHE, storefront, || load_item_names(storefront))
 }
 
 fn load_companion_links(storefront: &Storefront) -> Result<HashMap<u32, u32>, super::AppError> {
-    let streaming_assets = find_streaming_assets(storefront)
-        .ok_or_else(|| super::AppError::NotFound("Could not locate game files".to_string()))?;
+    let streaming_assets = streaming_assets(storefront)?;
     let item_bytes = read(streaming_assets.join("itemlist").join("Companion.json"))?;
     Ok(resolve_companion_links(
         &item_bytes,
@@ -503,38 +551,61 @@ fn load_companion_links(storefront: &Storefront) -> Result<HashMap<u32, u32>, su
     ))
 }
 
-static COMPANION_CACHE: Mutex<Option<(Storefront, Arc<HashMap<u32, u32>>)>> = Mutex::new(None);
+static COMPANION_CACHE: StorefrontCache<HashMap<u32, u32>> = Mutex::new(None);
 
 pub fn cached_companion_links(
     storefront: &Storefront,
 ) -> Result<Arc<HashMap<u32, u32>>, super::AppError> {
-    let mut cache = COMPANION_CACHE.lock().unwrap();
-    if let Some((cached_storefront, links)) = cache.as_ref() {
-        if cached_storefront == storefront {
-            return Ok(links.clone());
-        }
-    }
-
-    let links = Arc::new(load_companion_links(storefront)?);
-    *cache = Some((storefront.clone(), links.clone()));
-    Ok(links)
+    cached(&COMPANION_CACHE, storefront, || {
+        load_companion_links(storefront)
+    })
 }
 
-static MENU_CACHE: Mutex<Option<(Storefront, Arc<HashMap<String, String>>)>> = Mutex::new(None);
+fn load_menu_labels(storefront: &Storefront) -> Result<HashMap<String, String>, super::AppError> {
+    Ok(parse_loc_map(&read_loc_entry(storefront, "menu.locbin")?))
+}
+
+static MENU_CACHE: StorefrontCache<HashMap<String, String>> = Mutex::new(None);
 
 pub(crate) fn cached_menu_labels(
     storefront: &Storefront,
 ) -> Result<Arc<HashMap<String, String>>, super::AppError> {
-    let mut cache = MENU_CACHE.lock().unwrap();
-    if let Some((cached_storefront, labels)) = cache.as_ref() {
-        if cached_storefront == storefront {
-            return Ok(labels.clone());
-        }
-    }
+    cached(&MENU_CACHE, storefront, || load_menu_labels(storefront))
+}
 
-    let labels = Arc::new(parse_loc_map(&read_loc_entry(storefront, "menu.locbin")?));
-    *cache = Some((storefront.clone(), labels.clone()));
-    Ok(labels)
+fn load_liveops_labels(
+    storefront: &Storefront,
+) -> Result<HashMap<String, String>, super::AppError> {
+    Ok(parse_loc_map(&read_loc_entry(
+        storefront,
+        "Liveops.locbin",
+    )?))
+}
+
+static LIVEOPS_CACHE: StorefrontCache<HashMap<String, String>> = Mutex::new(None);
+
+pub(crate) fn cached_liveops_labels(
+    storefront: &Storefront,
+) -> Result<Arc<HashMap<String, String>>, super::AppError> {
+    cached(&LIVEOPS_CACHE, storefront, || {
+        load_liveops_labels(storefront)
+    })
+}
+
+fn load_ftue_task_loc_keys(storefront: &Storefront) -> Result<Vec<String>, super::AppError> {
+    let streaming_assets = streaming_assets(storefront)?;
+    let db = read(streaming_assets.join("protoDb.bin"))?;
+    Ok(ftue_task_loc_keys_from_bytes(&db))
+}
+
+static FTUE_TASK_LOC_KEYS_CACHE: StorefrontCache<Vec<String>> = Mutex::new(None);
+
+pub(crate) fn cached_ftue_task_loc_keys(
+    storefront: &Storefront,
+) -> Result<Arc<Vec<String>>, super::AppError> {
+    cached(&FTUE_TASK_LOC_KEYS_CACHE, storefront, || {
+        load_ftue_task_loc_keys(storefront)
+    })
 }
 
 // display names for game ids: companions, characters, and items alike
@@ -542,4 +613,38 @@ pub(crate) fn cached_menu_labels(
 #[specta::specta]
 pub fn get_display_names(storefront: Storefront) -> Result<HashMap<u32, String>, super::AppError> {
     Ok((*cached_item_names(&storefront)?).clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ftue_task_loc_keys_follow_config_slot_order() {
+        let db = b"\
+            Foo[Meta.Bar].proto.json\
+            StarPathFtue.StarPathFTUE[Definitions.StarPathFtueConfig].proto.json\
+            \x1a\x19Liveops.StarPathFTUE_Title\x12\x05text!\
+            \x1a\x1bLiveops.StarPathFTUE_Task12_Description\
+            \x00\x9f\x2f\
+            \x1a\x30Liveops.GodlyGlamorStarPath2026_Task11_Description\
+            \x1a\x1bLiveops.StarPathFTUE_Task05_Description\
+            \x1a\x22Liveops.StarPathFTUE_Week1Task01_Description\
+            \x09Storage.Foo[Meta.X].proto.json\
+            \x1a\x1bLiveops.StarPathFTUE_Task99_Description";
+
+        assert_eq!(
+            ftue_task_loc_keys_from_bytes(db),
+            [
+                "StarPathFTUE_Task12_Description",
+                "GodlyGlamorStarPath2026_Task11_Description",
+                "StarPathFTUE_Task05_Description",
+            ]
+        );
+    }
+
+    #[test]
+    fn ftue_task_loc_keys_without_config_are_empty() {
+        assert!(ftue_task_loc_keys_from_bytes(b"no config here").is_empty());
+    }
 }

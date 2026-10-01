@@ -21,6 +21,7 @@ pub struct ChecklistFacts {
     rift_biomes: Vec<Option<String>>,
     dream_snaps: Option<DreamSnaps>,
     scrooge_stores: Vec<ScroogeStore>,
+    star_paths: Vec<super::starpath::StarPath>,
 }
 
 #[derive(Clone, serde::Serialize, specta::Type)]
@@ -51,6 +52,7 @@ pub(crate) fn collect(loaded: &LoadedSave) -> Result<ChecklistFacts, AppError> {
         rift_biomes: placed_object_biomes(save, is_rift),
         dream_snaps: dream_snaps(save),
         scrooge_stores: scrooge_stores(loaded),
+        star_paths: super::starpath::collect(loaded),
     })
 }
 
