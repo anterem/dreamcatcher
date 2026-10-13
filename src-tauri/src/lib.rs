@@ -311,10 +311,10 @@ pub fn run() {
         .invoke_handler(specta_builder.invoke_handler())
         .setup(move |app| {
             specta_builder.mount_events(app);
-            if deck_gaming_mode() {
-                if let Some(window) = app.get_webview_window("main") {
-                    window.set_fullscreen(true)?;
-                }
+            if deck_gaming_mode()
+                && let Some(window) = app.get_webview_window("main")
+            {
+                window.set_fullscreen(true)?;
             }
             Ok(())
         })

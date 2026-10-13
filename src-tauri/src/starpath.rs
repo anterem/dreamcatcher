@@ -38,18 +38,16 @@ pub(crate) fn collect(loaded: &LoadedSave) -> Vec<StarPath> {
     if let Some(entry) = loaded
         .contents
         .pointer("/Player/BattlePassStates/FtueProgress")
+        && !ftue_mission_completed(&loaded.contents)
     {
-        if !ftue_mission_completed(&loaded.contents) {
-            let task_loc_keys =
-                super::game_data::cached_ftue_task_loc_keys(&loaded.storefront).ok();
-            star_paths.extend(collect_star_path(
-                "StarPathFTUE",
-                entry,
-                &labels,
-                task_loc_keys.as_deref().map(Vec::as_slice),
-                now_secs,
-            ));
-        }
+        let task_loc_keys = super::game_data::cached_ftue_task_loc_keys(&loaded.storefront).ok();
+        star_paths.extend(collect_star_path(
+            "StarPathFTUE",
+            entry,
+            &labels,
+            task_loc_keys.as_deref().map(Vec::as_slice),
+            now_secs,
+        ));
     }
     if let Some(progress) = loaded
         .contents
@@ -143,7 +141,7 @@ fn duty_description<'a>(
         .map(String::as_str)
 }
 
-fn ongoing_tasks<'a>(tasks: Option<&'a Value>) -> impl Iterator<Item = (u32, &'a Value)> {
+fn ongoing_tasks(tasks: Option<&Value>) -> impl Iterator<Item = (u32, &Value)> {
     tasks
         .and_then(|v| v.as_array())
         .into_iter()

@@ -66,7 +66,7 @@ fn parse_vdf_paths(content: &str) -> Vec<String> {
         .filter(|line| line.trim().starts_with(r#""path""#))
         .filter_map(|line| {
             line.split('\t')
-                .last()
+                .next_back()
                 .map(|s| s.trim().trim_matches('"').to_string())
         })
         .collect()
@@ -79,7 +79,7 @@ fn parse_acf_field(content: &str, field: &str) -> Option<String> {
         .find(|line| line.trim().starts_with(&target))
         .and_then(|line| {
             line.split('\t')
-                .last()
+                .next_back()
                 .map(|s| s.trim().trim_matches('"').to_string())
         })
 }
@@ -189,15 +189,13 @@ fn find_epic_streaming_assets() -> Option<PathBuf> {
             continue;
         };
         if manifest.get("DisplayName").and_then(|v| v.as_str()) == Some("Disney Dreamlight Valley")
+            && let Some(install_location) = manifest.get("InstallLocation").and_then(|v| v.as_str())
         {
-            if let Some(install_location) = manifest.get("InstallLocation").and_then(|v| v.as_str())
-            {
-                let streaming_assets = PathBuf::from(install_location)
-                    .join("ddv_Data")
-                    .join("StreamingAssets");
-                if streaming_assets.exists() {
-                    return Some(streaming_assets);
-                }
+            let streaming_assets = PathBuf::from(install_location)
+                .join("ddv_Data")
+                .join("StreamingAssets");
+            if streaming_assets.exists() {
+                return Some(streaming_assets);
             }
         }
     }
@@ -222,12 +220,12 @@ fn find_ms_streaming_assets() -> Option<PathBuf> {
             r"SOFTWARE\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\AppModel\PackageRepository\Packages\{}",
             app_id
         );
-        if let Ok(packages_key) = hklm.open_subkey(&packages_key_path) {
-            if let Ok(path) = packages_key.get_value::<String, _>("Path") {
-                let streaming_assets = PathBuf::from(path).join("ddv_Data").join("StreamingAssets");
-                if streaming_assets.exists() {
-                    return Some(streaming_assets);
-                }
+        if let Ok(packages_key) = hklm.open_subkey(&packages_key_path)
+            && let Ok(path) = packages_key.get_value::<String, _>("Path")
+        {
+            let streaming_assets = PathBuf::from(path).join("ddv_Data").join("StreamingAssets");
+            if streaming_assets.exists() {
+                return Some(streaming_assets);
             }
         }
     }
@@ -270,35 +268,34 @@ fn resolve_display_names(
 
         // use scratch cursor to check for false positives
         let mut scan = id_start;
-        if let Some(id) = read_varint(bytes, &mut scan) {
-            if id_range.contains(&(id as u32)) && bytes.get(scan) == Some(&0x12) {
-                scan += 1;
-                if let Some(data) = read_bytes(bytes, &mut scan) {
-                    if let Ok(key) = std::str::from_utf8(data) {
-                        // locbin key has two forms
-                        // "Fish!Bass" -> "Fish!Bass_DisplayName" - field 2
-                        //  "ActivityItem.Fish!Expansion01!Piranha_DisplayName" - field 3
-                        if let Some(name) = loc_map.get(&format!("{key}_DisplayName")) {
-                            names.insert(id as u32, name.clone());
-                            pos = scan;
-                            continue;
-                        }
-                        let mut f3 = scan;
-                        if bytes.get(f3) == Some(&0x1a) {
-                            f3 += 1;
-                            if let Some(full) = read_bytes(bytes, &mut f3) {
-                                if let Some(loc_key) = std::str::from_utf8(full)
-                                    .ok()
-                                    .and_then(|s| s.split_once('.'))
-                                {
-                                    if let Some(name) = loc_map.get(loc_key.1) {
-                                        names.insert(id as u32, name.clone());
-                                        pos = f3;
-                                        continue;
-                                    }
-                                }
-                            }
-                        }
+        if let Some(id) = read_varint(bytes, &mut scan)
+            && id_range.contains(&(id as u32))
+            && bytes.get(scan) == Some(&0x12)
+        {
+            scan += 1;
+            if let Some(data) = read_bytes(bytes, &mut scan)
+                && let Ok(key) = std::str::from_utf8(data)
+            {
+                // locbin key has two forms
+                // "Fish!Bass" -> "Fish!Bass_DisplayName" - field 2
+                //  "ActivityItem.Fish!Expansion01!Piranha_DisplayName" - field 3
+                if let Some(name) = loc_map.get(&format!("{key}_DisplayName")) {
+                    names.insert(id as u32, name.clone());
+                    pos = scan;
+                    continue;
+                }
+                let mut f3 = scan;
+                if bytes.get(f3) == Some(&0x1a) {
+                    f3 += 1;
+                    if let Some(full) = read_bytes(bytes, &mut f3)
+                        && let Some(loc_key) = std::str::from_utf8(full)
+                            .ok()
+                            .and_then(|s| s.split_once('.'))
+                        && let Some(name) = loc_map.get(loc_key.1)
+                    {
+                        names.insert(id as u32, name.clone());
+                        pos = f3;
+                        continue;
                     }
                 }
             }
@@ -320,12 +317,12 @@ fn resolve_companion_links(bytes: &[u8], wild_range: Range<u32>) -> HashMap<u32,
             continue;
         }
         let mut scan = pos + 1;
-        if let Some(id) = read_varint(bytes, &mut scan) {
-            if wild_range.contains(&(id as u32)) && bytes.get(scan) == Some(&0x12) {
-                if let Some(companion) = read_companion_field(bytes, scan) {
-                    links.insert(id as u32, companion);
-                }
-            }
+        if let Some(id) = read_varint(bytes, &mut scan)
+            && wild_range.contains(&(id as u32))
+            && bytes.get(scan) == Some(&0x12)
+            && let Some(companion) = read_companion_field(bytes, scan)
+        {
+            links.insert(id as u32, companion);
         }
         pos += 1;
     }
@@ -339,20 +336,19 @@ fn read_companion_field(bytes: &[u8], mut pos: usize) -> Option<u32> {
     while pos + 1 < bytes.len() {
         if bytes[pos] == 0x08 {
             let mut scan = pos + 1;
-            if let Some(next_id) = read_varint(bytes, &mut scan) {
-                if (120_000_000..120_300_000).contains(&(next_id as u32))
-                    && bytes.get(scan) == Some(&0x12)
-                {
-                    return None;
-                }
+            if let Some(next_id) = read_varint(bytes, &mut scan)
+                && (120_000_000..120_300_000).contains(&(next_id as u32))
+                && bytes.get(scan) == Some(&0x12)
+            {
+                return None;
             }
         }
         if bytes[pos] == 0xB8 && bytes.get(pos + 1) == Some(&0x01) {
             let mut scan = pos + 2;
-            if let Some(companion) = read_varint(bytes, &mut scan) {
-                if COMPANION_RANGE.contains(&(companion as u32)) {
-                    return Some(companion as u32);
-                }
+            if let Some(companion) = read_varint(bytes, &mut scan)
+                && COMPANION_RANGE.contains(&(companion as u32))
+            {
+                return Some(companion as u32);
             }
         }
         pos += 1;
