@@ -39,14 +39,17 @@ pub(crate) fn collect(loaded: &LoadedSave) -> Vec<StarPath> {
         .contents
         .pointer("/Player/BattlePassStates/FtueProgress")
     {
-        let task_loc_keys = super::game_data::cached_ftue_task_loc_keys(&loaded.storefront).ok();
-        star_paths.extend(collect_star_path(
-            "StarPathFTUE",
-            entry,
-            &labels,
-            task_loc_keys.as_deref().map(Vec::as_slice),
-            now_secs,
-        ));
+        if !ftue_mission_completed(&loaded.contents) {
+            let task_loc_keys =
+                super::game_data::cached_ftue_task_loc_keys(&loaded.storefront).ok();
+            star_paths.extend(collect_star_path(
+                "StarPathFTUE",
+                entry,
+                &labels,
+                task_loc_keys.as_deref().map(Vec::as_slice),
+                now_secs,
+            ));
+        }
     }
     if let Some(progress) = loaded
         .contents
@@ -95,6 +98,20 @@ fn collect_star_path(
         }
     }
     (!duties.is_empty()).then_some(StarPath { name, duties })
+}
+
+// last duty of FTUE is always incomplete, check mission status instead
+const STAR_PATH_FTUE_MISSION_ID: u64 = 2070001657;
+
+fn ftue_mission_completed(contents: &Value) -> bool {
+    contents
+        .pointer("/World/QuestInfo/MissionsCompleted")
+        .and_then(|v| v.as_array())
+        .is_some_and(|missions| {
+            missions
+                .iter()
+                .any(|m| m.as_u64() == Some(STAR_PATH_FTUE_MISSION_ID))
+        })
 }
 
 fn is_current(entry: &Value, now_secs: i64) -> bool {
