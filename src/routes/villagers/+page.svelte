@@ -1,12 +1,12 @@
 <script lang="ts">
-  import type { Role } from '$lib/bindings';
-  import { save } from '$lib/save.svelte';
-  import { clock } from '$lib/clock.svelte';
+  import type { Role } from '#lib/bindings';
+  import { save } from '#lib/save.svelte';
+  import { clock } from '#lib/clock.svelte';
   import { villagerStatus, type VillagerStatus } from './status';
-  import { ROLES, ROLE_ICONS, roleLabel } from '$lib/utils';
-  import { PersistedState } from '$lib/persisted.svelte';
-  import FilterToggle from '$lib/components/FilterToggle.svelte';
-  import PageHeader from '$lib/components/PageHeader.svelte';
+  import { ROLES, ROLE_ICONS, roleLabel } from '#lib/utils';
+  import { PersistedState } from '#lib/persisted.svelte';
+  import FilterToggle from '#lib/components/FilterToggle.svelte';
+  import PageHeader from '#lib/components/PageHeader.svelte';
 
   const onlyGiftable = new PersistedState('villagers.toGift', false);
   const selectedRole = new PersistedState<Role | null>('villagers.role', null);

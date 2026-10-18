@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { page } from '$app/state';
-  import { save } from '$lib/save.svelte';
-  import { clock } from '$lib/clock.svelte';
-  import { formatRelativeTime } from '$lib/utils';
+  import { save } from '#lib/save.svelte';
+  import { clock } from '#lib/clock.svelte';
+  import { formatRelativeTime } from '#lib/utils';
   import '../app.css';
 
   let { children } = $props();

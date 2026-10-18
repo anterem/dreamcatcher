@@ -1,6 +1,6 @@
 [package]
 name = "dreamcatcher"
-version = "1.2.0"
+version = "1.3.0"
 description = "A companion app for Dreamlight Valley."
 authors = ["anterem"]
 edition = "2024"
@@ -19,9 +19,9 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-aes = "0.9.1"
+aes = "0.9.3"
 cipher = { version = "0.5.2", features = ["block-padding"] }
-ecb = { version = "0.2.0", features = ["alloc"] }
+ecb = { version = "0.2.1", features = ["alloc"] }
 hex-literal = "1.1.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -30,8 +30,8 @@ specta-typescript = "0.0.12"
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 tauri-specta = { version = "2.0.0-rc.25", features = ["derive", "typescript"] }
-thiserror = "2.0.18"
-zip = "8.6.0"
+thiserror = "2.0.21"
+zip = "9.0.5"
 chrono = "0.4"
 notify-debouncer-full = "0.7.0"
 

@@ -1,12 +1,12 @@
 <script lang="ts">
-  import { save } from '$lib/save.svelte';
-  import { clock } from '$lib/clock.svelte';
-  import { localHour, localWeekday, upcomingWindowStart } from '$lib/time';
+  import { save } from '#lib/save.svelte';
+  import { clock } from '#lib/clock.svelte';
+  import { localHour, localWeekday, upcomingWindowStart } from '#lib/time';
   import { critterStatus, type CritterStatus } from './status';
-  import { WEEKDAY_NAMES, formatHour, formatSchedule } from '$lib/utils';
-  import { PersistedState } from '$lib/persisted.svelte';
-  import FilterToggle from '$lib/components/FilterToggle.svelte';
-  import PageHeader from '$lib/components/PageHeader.svelte';
+  import { WEEKDAY_NAMES, formatHour, formatSchedule } from '#lib/utils';
+  import { PersistedState } from '#lib/persisted.svelte';
+  import FilterToggle from '#lib/components/FilterToggle.svelte';
+  import PageHeader from '#lib/components/PageHeader.svelte';
 
   let tz = $derived(save.current?.tzOffset ?? 0);
   let todayIndex = $derived(localWeekday(clock.nowSecs, tz));

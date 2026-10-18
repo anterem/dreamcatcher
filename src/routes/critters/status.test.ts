@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { critterStatus } from './status';
-import type { Critter, Schedule } from '$lib/bindings';
+import type { Critter, Schedule } from '#lib/bindings';
 
 const H = 3600;
 const DAY = 86400;

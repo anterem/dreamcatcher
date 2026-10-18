@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { save } from '$lib/save.svelte';
-  import { checklistItems } from '$lib/checklist';
-  import PageHeader from '$lib/components/PageHeader.svelte';
+  import { save } from '#lib/save.svelte';
+  import { checklistItems } from '#lib/checklist';
+  import PageHeader from '#lib/components/PageHeader.svelte';
 
   let section = $derived(save.current?.checklist ?? null);
   let items = $derived(section?.status === 'ok' ? checklistItems(section.data) : null);

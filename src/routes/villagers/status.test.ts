@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { villagerStatus } from './status';
-import type { PreferredGift, Villager } from '$lib/bindings';
+import type { PreferredGift, Villager } from '#lib/bindings';
 
 const H = 3600;
 const DAY = 86400;

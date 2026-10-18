@@ -6,3 +6,4 @@ src-tauri/target
 src-tauri/gen
 bun.lock
 package-lock.json
+src/lib/bindings.ts

@@ -1,11 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { commands, type SaveFile } from '$lib/bindings';
-  import { loadedSaveFile } from '$lib/store.svelte';
-  import { save } from '$lib/save.svelte';
-  import { formatRelativeTime } from '$lib/utils';
-  import { clock } from '$lib/clock.svelte';
+  import { commands, type SaveFile } from '#lib/bindings';
+  import { loadedSaveFile } from '#lib/store.svelte';
+  import { save } from '#lib/save.svelte';
+  import { formatRelativeTime } from '#lib/utils';
+  import { clock } from '#lib/clock.svelte';
 
   let saveFiles: SaveFile[] = $state([]);
   let saveFilesError = $state('');
