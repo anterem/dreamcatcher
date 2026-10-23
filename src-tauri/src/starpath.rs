@@ -39,13 +39,14 @@ pub(crate) fn collect(loaded: &LoadedSave) -> Vec<StarPath> {
         .contents
         .pointer("/Player/BattlePassStates/FtueProgress")
         && !ftue_mission_completed(&loaded.contents)
+        && let Ok(task_description_keys) =
+            super::game_data::cached_ftue_task_loc_keys(&loaded.storefront)
     {
-        let task_loc_keys = super::game_data::cached_ftue_task_loc_keys(&loaded.storefront).ok();
         star_paths.extend(collect_star_path(
             "StarPathFTUE",
             entry,
             &labels,
-            task_loc_keys.as_deref().map(Vec::as_slice),
+            &task_description_keys,
             now_secs,
         ));
     }
@@ -55,17 +56,42 @@ pub(crate) fn collect(loaded: &LoadedSave) -> Vec<StarPath> {
         .and_then(|v| v.as_object())
     {
         for (code, entry) in progress {
-            star_paths.extend(collect_star_path(code, entry, &labels, None, now_secs));
+            let task_description_keys = seasonal_task_description_keys(&labels, code);
+            star_paths.extend(collect_star_path(
+                code,
+                entry,
+                &labels,
+                &task_description_keys,
+                now_secs,
+            ));
         }
     }
     star_paths
+}
+
+// task numbers can have gaps, e.g. Seafaring2026 uses Task02 to Task55 for 25 tasks total
+fn seasonal_task_description_keys(labels: &HashMap<String, String>, code: &str) -> Vec<String> {
+    let prefix = format!("{code}_Task");
+    let mut keys: Vec<(u32, String)> = labels
+        .keys()
+        .filter_map(|key| {
+            let number = key
+                .strip_prefix(&prefix)?
+                .strip_suffix("_Description")?
+                .parse()
+                .ok()?;
+            Some((number, key.clone()))
+        })
+        .collect();
+    keys.sort_unstable_by_key(|(number, _)| *number);
+    keys.into_iter().map(|(_, key)| key).collect()
 }
 
 fn collect_star_path(
     code: &str,
     entry: &Value,
     labels: &HashMap<String, String>,
-    task_loc_keys: Option<&[String]>,
+    task_description_keys: &[String],
     now_secs: i64,
 ) -> Option<StarPath> {
     if !is_current(entry, now_secs) {
@@ -75,11 +101,9 @@ fn collect_star_path(
 
     let mut duties = Vec::new();
     for (index, task) in ongoing_tasks(entry.get("TasksProgress")) {
-        let description = task_loc_keys
-            .and_then(|keys| keys.get(index as usize))
-            .and_then(|key| labels.get(key))
-            .map(String::as_str)
-            .or_else(|| duty_description(labels, code, None, index));
+        let description = task_description_keys
+            .get(index)
+            .and_then(|key| labels.get(key));
         if let Some(description) = description {
             duties.push(StarPathDuty::from_task(description, task));
         }
@@ -87,8 +111,7 @@ fn collect_star_path(
     if let Some(groups) = entry.get("WeeklyTasksProgress").and_then(|v| v.as_array()) {
         for (week_index, group) in groups.iter().enumerate() {
             for (index, task) in ongoing_tasks(group.get("TasksProgress")) {
-                if let Some(description) =
-                    duty_description(labels, code, Some(week_index as u32), index)
+                if let Some(description) = weekly_duty_description(labels, code, week_index, index)
                 {
                     duties.push(StarPathDuty::from_task(description, task));
                 }
@@ -120,28 +143,22 @@ fn is_current(entry: &Value, now_secs: i64) -> bool {
         .is_some_and(|end| end.timestamp() > now_secs)
 }
 
-fn duty_description<'a>(
+fn weekly_duty_description<'a>(
     labels: &'a HashMap<String, String>,
     code: &str,
-    week_index: Option<u32>,
-    task_index: u32,
+    week_index: usize,
+    task_index: usize,
 ) -> Option<&'a str> {
+    let week = week_index + 1;
     let task = format!("Task{:02}", task_index + 1);
-    let key = match week_index {
-        Some(week_index) => format!("{code}_Week{:02}{task}_Description", week_index + 1),
-        None => format!("{code}_{task}_Description"),
-    };
     labels
-        .get(&key)
+        .get(&format!("{code}_Week{week:02}{task}_Description"))
         // StarPathFTUE uses Week1 instead of Week01 like other star paths
-        .or_else(|| {
-            week_index
-                .and_then(|week| labels.get(&format!("{code}_Week{}{task}_Description", week + 1)))
-        })
+        .or_else(|| labels.get(&format!("{code}_Week{week}{task}_Description")))
         .map(String::as_str)
 }
 
-fn ongoing_tasks(tasks: Option<&Value>) -> impl Iterator<Item = (u32, &Value)> {
+fn ongoing_tasks(tasks: Option<&Value>) -> impl Iterator<Item = (usize, &Value)> {
     tasks
         .and_then(|v| v.as_array())
         .into_iter()
@@ -150,7 +167,6 @@ fn ongoing_tasks(tasks: Option<&Value>) -> impl Iterator<Item = (u32, &Value)> {
         .filter(|(_, task)| {
             task.get("TaskState").and_then(|v| v.as_str()) == Some("BattlePassTaskState_OnGoing")
         })
-        .map(|(index, task)| (index as u32, task))
 }
 
 fn task_progress(task: &Value) -> (u32, u32) {
@@ -184,7 +200,7 @@ mod tests {
             .collect()
     }
 
-    fn current(tasks: Value) -> Value {
+    fn current_star_path(tasks: Value) -> Value {
         json!({ "EndDate": "2026-12-09T14:00:00Z", "TasksProgress": tasks })
     }
 
@@ -204,14 +220,15 @@ mod tests {
 
     #[test]
     fn ongoing_duties_grouped_by_star_path() {
-        let current = current(json!([task(ONGOING, 4, 20), task(NOT_STARTED, 0, 5),]));
+        let current = current_star_path(json!([task(ONGOING, 4, 20), task(NOT_STARTED, 0, 5),]));
         let labels = labels(&[
             ("PopCity2026_Title", "Pop City Star Path"),
             ("PopCity2026_Task01_Description", "Catch some fish."),
         ]);
+        let task_description_keys = vec!["PopCity2026_Task01_Description".to_string()];
 
         assert_eq!(
-            collect_star_path("PopCity2026", &current, &labels, None, 0).unwrap(),
+            collect_star_path("PopCity2026", &current, &labels, &task_description_keys, 0).unwrap(),
             StarPath {
                 name: "Pop City Star Path".to_string(),
                 duties: vec![StarPathDuty {
@@ -225,7 +242,7 @@ mod tests {
 
     #[test]
     fn ftue_duties_use_loc_keys_by_index() {
-        let current = current(json!([
+        let current = current_star_path(json!([
             task(ONGOING, 0, 5),
             task(CLAIMED, 1, 1),
             task(NOT_STARTED, 0, 1),
@@ -235,13 +252,13 @@ mod tests {
             ("StarPathFTUE_Task02_Description", "Whip up a 2-star meal."),
             ("StarPathFTUE_Task03_Description", "Go fish!"),
         ]);
-        let task_loc_keys = vec![
+        let task_description_keys = vec![
             "StarPathFTUE_Task03_Description".to_string(),
             "StarPathFTUE_Task02_Description".to_string(),
         ];
 
         assert_eq!(
-            collect_star_path("StarPathFTUE", &current, &labels, Some(&task_loc_keys), 0)
+            collect_star_path("StarPathFTUE", &current, &labels, &task_description_keys, 0)
                 .unwrap()
                 .duties,
             [StarPathDuty {
@@ -257,7 +274,7 @@ mod tests {
         let labels = labels(&[("StarPathFTUE_Week1Task01_Description", "Plant vegetables")]);
 
         assert_eq!(
-            duty_description(&labels, "StarPathFTUE", Some(0), 0),
+            weekly_duty_description(&labels, "StarPathFTUE", 0, 0),
             Some("Plant vegetables")
         );
     }
