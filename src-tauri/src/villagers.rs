@@ -1,85 +1,9 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use serde::Deserialize;
+use serde_json::Value;
 
 use super::{AppError, LoadedSave};
-
-// hardcoded for in-game order and to skip non villagers
-static VILLAGER_ROSTER: &[u32] = &[
-    // --- Valley ---
-    10000130, // Aladdin
-    10000131, // Jasmine
-    10000132, // Alice
-    10000133, // Cheshire Cat
-    10000002, // Belle
-    10000025, // Cogsworth
-    10000007, // The Beast
-    10000020, // Lumiere
-    10000040, // Cinderella
-    10000063, // The Fairy Godmother
-    10000098, // The Forgotten
-    10000099, // Mirabel
-    10000034, // Anna
-    10000044, // Elsa
-    10000070, // Kristoff
-    10000029, // Olaf
-    10000187, // Hercules
-    10000186, // Phil
-    10000156, // Joy
-    10000157, // Sadness
-    10000179, // Lady
-    10000180, // Tramp
-    10000073, // Stitch
-    10000113, // Daisy
-    10000011, // Donald Duck
-    10000004, // Goofy
-    10000003, // Mickey Mouse
-    10000046, // Minnie Mouse
-    10000055, // Scrooge McDuck
-    10000019, // Maui
-    10000016, // Moana
-    10000110, // Mike Wazowski
-    10000109, // Sulley
-    10000115, // Mulan
-    10000116, // Mushu
-    10000137, // Peter Pan
-    10000182, // Pocahontas
-    10000018, // Remy
-    10000062, // Mother Gothel
-    10000033, // Nala
-    10000009, // Pumbaa
-    10000061, // Scar
-    10000030, // Simba
-    10000010, // Timon
-    10000053, // Ariel
-    10000052, // Prince Eric
-    10000060, // Ursula
-    10000125, // Tiana
-    10000035, // Merlin
-    10000105, // Jack Skellington
-    10000129, // Sally
-    10000013, // Buzz Lightyear
-    10000032, // Woody
-    10000014, // WALL·E
-    10000031, // Vanellope
-    // --- Eternity Isle ---
-    10000103, // Jafar
-    10000043, // Gaston
-    10000114, // Oswald
-    10000027, // Rapunzel
-    10000038, // EVE
-    // --- Storybook Vale ---
-    10000117, // Merida
-    10000119, // Hades
-    10000135, // Aurora
-    10000127, // Maleficent
-    10000059, // Flynn
-    // --- Wishblossom Ranch ---
-    10000162, // Cruella
-    10000160, // Tinker Bell
-    10000158, // Snow White
-    10000166, // Tigger
-];
 
 #[derive(Clone, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -207,6 +131,24 @@ impl SavedCharacter {
     }
 }
 
+// Player/CollectionSets contains all villager ids
+fn collection_villager_ids(save: &Value) -> BTreeSet<u32> {
+    let Some(sets) = save
+        .pointer("/Player/CollectionSets")
+        .and_then(Value::as_array)
+    else {
+        return BTreeSet::new();
+    };
+    sets.iter()
+        .filter_map(|set| set.get("GroupData")?.as_array())
+        .flatten()
+        .filter_map(|group| group.get("GroupsCollectionItems")?.as_object())
+        .flat_map(|items| items.keys())
+        .filter_map(|id| id.parse::<u32>().ok())
+        .filter(|id| (10_000_000..10_100_000).contains(id))
+        .collect()
+}
+
 pub(crate) fn collect(loaded: &LoadedSave) -> Result<Vec<Villager>, AppError> {
     let names = super::game_data::cached_item_names(&loaded.storefront)?;
 
@@ -223,12 +165,17 @@ pub(crate) fn collect(loaded: &LoadedSave) -> Result<Vec<Villager>, AppError> {
         })
         .unwrap_or_default();
 
-    let locked = SavedCharacter::default();
+    let mut villager_ids = collection_villager_ids(&loaded.contents);
+    if villager_ids.is_empty() {
+        // saves without character collections: trust the live status instead
+        villager_ids.extend(by_id.values().filter(|c| c.in_village()).map(|c| c.base.id));
+    }
+
     // villagers not yet in the village are dropped so unreleased arrivals are not spoiled
-    let villagers = VILLAGER_ROSTER
-        .iter()
-        .filter_map(|&id| {
-            let saved = by_id.get(&id).unwrap_or(&locked);
+    let villagers = villager_ids
+        .into_iter()
+        .filter_map(|id| {
+            let saved = by_id.get(&id)?;
             if !saved.in_village() {
                 return None;
             }

@@ -11,8 +11,14 @@
   const onlyGiftable = new PersistedState('villagers.toGift', false);
   const selectedRole = new PersistedState<Role | null>('villagers.role', null);
 
+  const collator = new Intl.Collator();
+
+  let villagersByName = $derived(
+    save.villagers.data.toSorted((a, b) => collator.compare(a.name, b.name))
+  );
+
   let allVillagers = $derived(
-    save.villagers.data.map((v) =>
+    villagersByName.map((v) =>
       villagerStatus(v, save.current?.modifiedSecs ?? 0, clock.nowSecs, save.current?.tzOffset ?? 0)
     )
   );
